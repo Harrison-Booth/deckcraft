@@ -58,9 +58,11 @@ CPU twin used by `deckcraft-cli render-transition` and the tests. The show windo
 comes from `anim::timeline` each frame. Animations ▸ Preview plays that same state on the editor
 canvas for the current slide, then draws the slide at rest. The renderer draws through a small `Canvas` trait
 (`crates/render/src/canvas.rs`): `vello_cpu` for pixels, and a krilla canvas in `crates/pdf` that
-writes PDF paths, paints, pictures and real text. Shapes with blur-based effects and pattern fills
-reach a vector canvas as a pixmap of that element alone; `vector: false` keeps the older
-whole-slide raster with an invisible text layer.
+writes PDF paths, paints, pictures and real text. What the renderer only draws in pixels (shapes
+with blur-based effects or a fill overlay, pattern fills, rectangle and shape path gradients, text
+shadows and glows, colour emoji, WMF/EMF pictures) reaches a vector canvas as a pixmap of that
+element alone (`canvas::pixels`); `vector: false` keeps the older whole-slide raster with an
+invisible text layer.
 
 ## File I/O
 
