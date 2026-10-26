@@ -64,11 +64,9 @@ fn params(r: &mut Rng, s: &Session) -> Value {
     }
 }
 
-/// Resident set size in bytes, where `/proc` exists; other platforms are not sampled.
-/// shortcut: assumes 4 KiB pages, upgrade when a 16 KiB-page target runs the soak.
+/// Resident set size in bytes (Linux, Windows and macOS); `None` where the platform can't say.
 fn rss_bytes() -> Option<u64> {
-    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
-    Some(statm.split_whitespace().nth(1)?.parse::<u64>().ok()? * 4096)
+    memory_stats::memory_stats().map(|m| m.physical_mem as u64)
 }
 
 /// RSS growth allowed between the warmed-up start and the end of a soak. Generous: `cargo test`
