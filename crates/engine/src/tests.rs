@@ -216,6 +216,29 @@ fn shrink_text_that_fits_is_saved_as_a_bare_normautofit() {
     assert!(xml(&s).contains("<a:normAutofit/>"), "{}", xml(&s));
 }
 
+/// A body saved with a bare `<a:normAutofit/>` is fitted afresh when its text is edited, as in
+/// PowerPoint, and the fitted scale is saved.
+#[test]
+fn editing_the_text_of_a_bare_normautofit_fits_it() {
+    use deckcraft_model::text::AutoFit;
+    let mut s = session();
+    let r = s.execute("shape.insert", &json!({"preset": "rect", "rect": [80.0, 80.0, 200.0, 40.0]})).unwrap();
+    let id = deckcraft_model::ShapeId(r["id"].as_u64().unwrap() as u32);
+    s.execute("format.autofit", &json!({"mode": "shrink"})).unwrap();
+    s.edit(|doc, sel| {
+        let shapes = crate::shapes_mut(doc, sel).unwrap();
+        let sh = deckcraft_model::find_shape_mut(shapes, id).unwrap();
+        sh.text.as_mut().unwrap().body.autofit = Some(AutoFit::Shrink { font_scale: None, line_reduction: 0.0 });
+        Ok(())
+    })
+    .unwrap();
+    let text = (0..12).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+    s.execute("text.set", &json!({"id": id.0, "text": text})).unwrap();
+    let sh = s.doc().unwrap().shape(id).cloned().unwrap();
+    let Some(AutoFit::Shrink { font_scale, .. }) = sh.text.unwrap().body.autofit else { panic!("shrink") };
+    assert!(font_scale.is_some_and(|v| v < 1.0), "{font_scale:?}");
+}
+
 #[test]
 fn smart_quotes_and_autocorrect() {
     let mut s = session();
