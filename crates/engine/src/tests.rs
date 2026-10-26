@@ -176,6 +176,11 @@ fn editing_shrink_text_stores_the_layout_scale() {
     std::io::Read::read_to_string(&mut z.by_name("ppt/slides/slide1.xml").unwrap(), &mut xml).unwrap();
     let scales: Vec<i64> = xml.split("fontScale=\"").skip(1).filter_map(|s| s.split('"').next()?.parse().ok()).collect();
     assert!(scales.iter().any(|v| *v < 100_000), "the fitted scale is saved: {scales:?}");
+    // Only the pairs PowerPoint saves: 7.5 % steps of the scale, 10 or 20 % less line spacing.
+    let steps = [100_000, 92_500, 85_000, 77_500, 70_000, 62_500, 55_000, 47_500, 40_000, 32_500, 25_000];
+    assert!(scales.iter().all(|v| steps.contains(v)), "{scales:?}");
+    let reductions: Vec<i64> = xml.split("lnSpcReduction=\"").skip(1).filter_map(|s| s.split('"').next()?.parse().ok()).collect();
+    assert!(reductions.iter().all(|v| [10_000, 20_000].contains(v)), "{reductions:?}");
     // Undo restores the state before the edit, and redo brings the stored fit back.
     s.execute("edit.undo", &json!({})).unwrap();
     let sh = s.doc().unwrap().shape(id).cloned().unwrap();
@@ -185,6 +190,30 @@ fn editing_shrink_text_stores_the_layout_scale() {
     let sh = s.doc().unwrap().shape(id).cloned().unwrap();
     let Some(AutoFit::Shrink { font_scale, .. }) = sh.text.unwrap().body.autofit else { panic!("shrink") };
     assert!(font_scale.is_some_and(|v| v < 1.0), "redo brings the stored fit back: {font_scale:?}");
+}
+
+/// PowerPoint writes a bare `<a:normAutofit/>` for text that fits, also after text that was
+/// shrunk is shortened again.
+#[test]
+fn shrink_text_that_fits_is_saved_as_a_bare_normautofit() {
+    let mut s = session();
+    let r = s.execute("shape.insert", &json!({"preset": "rect", "rect": [80.0, 80.0, 200.0, 100.0]})).unwrap();
+    let id = r["id"].as_u64().unwrap();
+    s.execute("format.autofit", &json!({"mode": "shrink"})).unwrap();
+    let xml = |s: &Session| {
+        let bytes = deckcraft_pptx::export(&s.doc().unwrap().doc).unwrap();
+        let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut xml = String::new();
+        std::io::Read::read_to_string(&mut z.by_name("ppt/slides/slide1.xml").unwrap(), &mut xml).unwrap();
+        xml
+    };
+    let lines = |n: usize| (0..n).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+    s.execute("text.set", &json!({"id": id, "text": lines(2)})).unwrap();
+    assert!(xml(&s).contains("<a:normAutofit/>"), "{}", xml(&s));
+    s.execute("text.set", &json!({"id": id, "text": lines(12)})).unwrap();
+    assert!(xml(&s).contains("<a:normAutofit fontScale="), "{}", xml(&s));
+    s.execute("text.set", &json!({"id": id, "text": lines(2)})).unwrap();
+    assert!(xml(&s).contains("<a:normAutofit/>"), "{}", xml(&s));
 }
 
 #[test]
