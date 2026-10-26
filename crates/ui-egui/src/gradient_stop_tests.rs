@@ -49,6 +49,29 @@ fn brightness_keeps_the_place_of_the_luminance_transforms() {
     assert_eq!(darker.mods, vec![ColorTransform::Tint(50_000), ColorTransform::LumMod(80_000), ColorTransform::Alpha(75_000)]);
 }
 
+/// The order survives the command boundary: `shape.fill` gets the stop as `cref_param` writes it.
+#[test]
+fn transform_order_survives_the_gradient_command() {
+    let c = ColorRef::scheme(SchemeSlot::Accent1)
+        .with(ColorTransform::Tint(50_000))
+        .with(ColorTransform::LumMod(60_000))
+        .with(ColorTransform::LumOff(40_000))
+        .with(ColorTransform::Alpha(75_000));
+    let mut s = Session::with_new();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let id = s.execute("shape.insert", &json!({"preset": "rect", "rect": [40.0, 40.0, 120.0, 80.0]})).unwrap()["id"].as_u64().unwrap();
+    s.execute(
+        "shape.fill",
+        &json!({"id": id, "gradient": {"stops": [[0.0, crate::ribbon::cref_param(&c)], [1.0, "accent2"]], "kind": "linear", "angle": 90}}),
+    )
+    .unwrap();
+    let shape = s.active().unwrap().shape(ShapeId(u32::try_from(id).unwrap())).unwrap();
+    let Some(Fill::Gradient(g)) = &shape.fill else { panic!("expected a gradient fill") };
+    assert_eq!(g.stops[0].color.mods, c.mods);
+    // A colour with one transform, or none, keeps the plain object form.
+    assert!(crate::ribbon::cref_param(&ColorRef::scheme(SchemeSlot::Accent1)).get("mods").is_none());
+}
+
 fn stop_color(h: &Harness<'_, SlideApp>, id: ShapeId, stop: usize) -> ColorRef {
     match &h.state().session.active().unwrap().shape(id).unwrap().fill {
         Some(Fill::Gradient(g)) => g.stops[stop].color.clone(),

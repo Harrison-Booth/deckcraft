@@ -377,7 +377,8 @@ pub(crate) fn ok() -> Result<Value> {
 
 /// Parse a colour param: `"#RRGGBB"`, `"accent1"`…, or `{"scheme":"accent2","lumMod":75000}`.
 /// A preset or system colour keeps its base: `{"preset":"red"}`,
-/// `{"system":"windowText","last":"#000000"}`.
+/// `{"system":"windowText","last":"#000000"}`. Transforms in the order that matters go in
+/// `"mods": [["tint", 50000], ["lumMod", 60000]]`; without it the object fields apply in key order.
 pub(crate) fn color_param(p: &Value, key: &str) -> Option<deckcraft_model::ColorRef> {
     let v = p.get(key)?;
     color_value(v)
@@ -412,10 +413,12 @@ pub(crate) fn color_value(v: &Value) -> Option<deckcraft_model::ColorRef> {
             } else {
                 ColorRef::rgb(deckcraft_color::Rgba::from_hex(o.get("rgb").and_then(Value::as_str)?)?)
             };
-            for (k, val) in o {
-                if let Some(t) = deckcraft_color::ColorTransform::from_xml(k, val.as_i64().and_then(|x| i32::try_from(x).ok())) {
-                    c.mods.push(t);
-                }
+            let transform = |k: &str, val: &Value| deckcraft_color::ColorTransform::from_xml(k, val.as_i64().and_then(|x| i32::try_from(x).ok()));
+            if let Some(list) = o.get("mods").and_then(Value::as_array) {
+                // The ordered form: `[[name, value], …]`, applied in sequence.
+                c.mods.extend(list.iter().filter_map(|m| transform(m.get(0)?.as_str()?, m.get(1).unwrap_or(&Value::Null))));
+            } else {
+                c.mods.extend(o.iter().filter_map(|(k, val)| transform(k, val)));
             }
             Some(c)
         }

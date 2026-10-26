@@ -656,6 +656,17 @@ fn font_group(app: &mut SlideApp, ui: &mut Ui, st: &Value) {
 
 /// A ColorRef as a command colour parameter.
 pub fn cref_param(c: &deckcraft_model::ColorRef) -> Value {
+    let mut v = cref_fields(c);
+    // A JSON object has no order, but transforms apply in sequence, so two or more also go in `mods`.
+    if c.mods.len() > 1
+        && let Value::Object(o) = &mut v
+    {
+        o.insert("mods".into(), c.mods.iter().map(|m| json!([m.xml_name(), m.value()])).collect());
+    }
+    v
+}
+
+fn cref_fields(c: &deckcraft_model::ColorRef) -> Value {
     match &c.base {
         deckcraft_model::ColorBase::Scheme { slot } => {
             let mut o = serde_json::Map::new();
