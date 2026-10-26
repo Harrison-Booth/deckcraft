@@ -1636,7 +1636,7 @@ mod tests {
 
     /// A blank slide with one selected rectangle, its fill set by `fill` (none for an automatic fill),
     /// in Format Shape ▸ Fill.
-    fn fill_pane(fill: Option<Value>) -> Harness<'static, SlideApp> {
+    fn fill_pane(fill: Option<serde_json::Value>) -> Harness<'static, SlideApp> {
         let mut s = Session::with_new();
         s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
         let id = s.execute("shape.insert", &json!({"preset": "rect", "rect": [40.0, 40.0, 120.0, 80.0]})).unwrap()["id"].as_u64().unwrap();
@@ -1658,7 +1658,7 @@ mod tests {
         h
     }
 
-    fn picture_fill(transparency: f64) -> Value {
+    fn picture_fill(transparency: f64) -> serde_json::Value {
         let png = deckcraft_render::Image { width: 2, height: 2, pixels: [255, 0, 0, 255].repeat(4) }.to_png();
         json!({"picture": deckcraft_engine::cmd::base64_encode(&png), "transparency": transparency})
     }
