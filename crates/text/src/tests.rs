@@ -187,7 +187,7 @@ fn shrink_on_overflow() {
 }
 
 /// PowerPoint 16 (Windows) saved exactly these pairs when one text was fitted into boxes growing
-/// from 100 to 440 pt high (and for 8 other fonts, sizes and box sizes), smallest text first;
+/// from 100 to 440 pt high (other fonts, sizes and boxes only ever gave pairs from this list), smallest text first;
 /// text that fits as it is gets a bare `<a:normAutofit/>`.
 #[test]
 fn shrink_steps_are_the_ones_powerpoint_saves() {

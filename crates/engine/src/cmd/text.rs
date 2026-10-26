@@ -1701,7 +1701,10 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
         body.paragraphs = nb.paragraphs;
-        reset_shrink_scale(&mut body.body);
+        // Only a shape's text is fitted afterwards (`fit_text_box`), so a cell keeps its scale.
+        if cell.is_none() {
+            reset_shrink_scale(&mut body.body);
+        }
         Ok(())
     })?;
     fit_text_box(s, id)?;
