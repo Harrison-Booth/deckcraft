@@ -23,6 +23,17 @@ const MAX_JOURNAL: usize = 10_000;
 /// Mean wall time per frame, generous for slow CI machines (the test profile is optimized).
 const MAX_MEAN_FRAME: Duration = Duration::from_millis(250);
 
+/// RSS growth allowed between the warmed-up start and the end of a soak; generous because
+/// `cargo test` threads share the process.
+const MAX_RSS_GROWTH: u64 = 256 << 20;
+
+/// Resident set size in bytes, where `/proc` exists; other platforms are not sampled.
+/// shortcut: assumes 4 KiB pages, upgrade when a 16 KiB-page target runs the soak.
+fn rss_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    Some(statm.split_whitespace().nth(1)?.parse::<u64>().ok()? * 4096)
+}
+
 struct Rng(u64);
 
 impl Rng {
@@ -166,7 +177,12 @@ fn soak(seed: u64, steps: usize) {
     let mut log = VecDeque::new();
     let t0 = Instant::now();
     let mut frames = 0usize;
+    let mut rss_start = None;
     for step in 0..steps {
+        // Sample after a quarter of the run so texture caches and allocator arenas are warm.
+        if step == steps / 4 {
+            rss_start = rss_bytes();
+        }
         log.push_back(act(&mut h, &mut r));
         if log.len() > 20 {
             log.pop_front();
@@ -189,6 +205,11 @@ fn soak(seed: u64, steps: usize) {
     let mean = t0.elapsed() / frames.max(1) as u32;
     eprintln!("ui soak seed {seed}: {steps} actions, {edits} commands, ~{frames} frames, mean frame {mean:?}");
     assert!(mean <= MAX_MEAN_FRAME, "mean frame {mean:?} over {MAX_MEAN_FRAME:?}; seed {seed}");
+    if let (Some(start), Some(end)) = (rss_start, rss_bytes()) {
+        let grew = end.saturating_sub(start);
+        eprintln!("ui soak seed {seed}: RSS {} -> {} MiB", start >> 20, end >> 20);
+        assert!(grew <= MAX_RSS_GROWTH, "RSS grew {} MiB over {} MiB; seed {seed}", grew >> 20, MAX_RSS_GROWTH >> 20);
+    }
 }
 
 fn env(name: &str, default: u64) -> u64 {

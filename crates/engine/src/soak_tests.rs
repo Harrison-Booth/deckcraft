@@ -64,6 +64,17 @@ fn params(r: &mut Rng, s: &Session) -> Value {
     }
 }
 
+/// Resident set size in bytes, where `/proc` exists; other platforms are not sampled.
+/// shortcut: assumes 4 KiB pages, upgrade when a 16 KiB-page target runs the soak.
+fn rss_bytes() -> Option<u64> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    Some(statm.split_whitespace().nth(1)?.parse::<u64>().ok()? * 4096)
+}
+
+/// RSS growth allowed between the warmed-up start and the end of a soak. Generous: `cargo test`
+/// threads share the process, so other tests' allocations count too.
+const MAX_RSS_GROWTH: u64 = 256 << 20;
+
 fn doc(s: &Session) -> Option<deckcraft_model::Presentation> {
     s.active().map(|d| (*d.doc).clone())
 }
@@ -91,7 +102,12 @@ fn soak(seed: u64, steps: usize) {
     let mut r = Rng(seed | 1);
     let mut log: VecDeque<String> = VecDeque::new();
     let mut edits = 0usize;
+    let mut rss_start = None;
     for step in 0..steps {
+        // Sample after a quarter of the run so one-off caches and allocator arenas are warm.
+        if step == steps / 4 {
+            rss_start = rss_bytes();
+        }
         let id = *r.pick(&ids).unwrap();
         let p = params(&mut r, &s);
         log.push_back(format!("{id} {p}"));
@@ -140,7 +156,13 @@ fn soak(seed: u64, steps: usize) {
     }
     // The soak must really edit, not just bounce off disabled commands.
     assert!(edits * 10 >= steps, "only {edits} of {steps} steps changed the document; seed {seed}");
-    eprintln!("soak seed {seed}: {edits} of {steps} steps edited");
+    if let (Some(start), Some(end)) = (rss_start, rss_bytes()) {
+        let grew = end.saturating_sub(start);
+        eprintln!("soak seed {seed}: {edits} of {steps} steps edited, RSS {} -> {} MiB", start >> 20, end >> 20);
+        assert!(grew <= MAX_RSS_GROWTH, "RSS grew {} MiB over {} MiB; seed {seed}", grew >> 20, MAX_RSS_GROWTH >> 20);
+    } else {
+        eprintln!("soak seed {seed}: {edits} of {steps} steps edited");
+    }
 }
 
 fn steps(default: usize) -> usize {
