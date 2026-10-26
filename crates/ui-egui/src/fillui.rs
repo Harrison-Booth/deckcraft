@@ -1,5 +1,5 @@
 //! The gradient editor of the Format pane (shape fill and slide background): preset variations,
-//! type, direction, angle and a stop bar (add, drag, recolour, set transparency, remove stops); and
+//! type, direction, angle and a stop bar (add, drag, recolour, set transparency and brightness, remove stops); and
 //! the pattern editor: a gallery of the preset patterns with foreground and background colors.
 
 use deckcraft_color::{ColorScheme, ColorTransform, SchemeSlot};
@@ -48,6 +48,29 @@ fn with_alpha(mut c: ColorRef, a: f64) -> ColorRef {
     c.mods.retain(|m| !matches!(m, ColorTransform::Alpha(_)));
     if a < 0.999 {
         c.mods.push(ColorTransform::Alpha((a.clamp(0.0, 1.0) * 100_000.0).round() as i32));
+    }
+    c
+}
+
+/// Brightness (-1..1) of a stop colour as PowerPoint's slider shows it: `lumMod` and `lumOff` read
+/// back as the lighter or darker amount, and a colour without them is 0.
+pub fn brightness_of(c: &ColorRef) -> f64 {
+    let find = |f: fn(&ColorTransform) -> Option<i32>| c.mods.iter().find_map(f).map(|v| v as f64 / 100_000.0);
+    let off = find(|m| if let ColorTransform::LumOff(v) = m { Some(*v) } else { None }).unwrap_or(0.0);
+    let modulate = find(|m| if let ColorTransform::LumMod(v) = m { Some(*v) } else { None }).unwrap_or(1.0);
+    (if off != 0.0 { off } else { modulate - 1.0 }).clamp(-1.0, 1.0)
+}
+
+/// `c` at brightness `b` (-1..1), written as PowerPoint writes it: lighter is `lumMod` 1-b with
+/// `lumOff` b, darker is `lumMod` 1+b. Other transforms, such as alpha, are kept.
+pub fn with_brightness(mut c: ColorRef, b: f64) -> ColorRef {
+    c.mods.retain(|m| !matches!(m, ColorTransform::LumMod(_) | ColorTransform::LumOff(_)));
+    let b = b.clamp(-1.0, 1.0);
+    let ppm = |v: f64| (v * 100_000.0).round() as i32;
+    if b > 0.0 {
+        c.mods.splice(0..0, [ColorTransform::LumMod(ppm(1.0 - b)), ColorTransform::LumOff(ppm(b))]);
+    } else if b < 0.0 {
+        c.mods.insert(0, ColorTransform::LumMod(ppm(1.0 + b)));
     }
     c
 }
@@ -317,6 +340,21 @@ pub fn gradient_editor(ui: &mut Ui, id: &str, g: &Gradient, sc: &ColorScheme) ->
             if r.drag_stopped() || (r.changed() && !r.dragged()) {
                 let mut ng = g.clone();
                 ng.stops[sel].color = with_alpha(s.color.clone(), 1.0 - tr as f64 / 100.0);
+                ui.data_mut(|d| d.remove::<f32>(key));
+                out = Some(ng);
+            }
+        });
+        ui.horizontal(|ui| {
+            let label = ui.add_sized(vec2(70.0, 20.0), egui::Label::new("Brightness"));
+            let key = ui.scope_id().with((id, "br", sel));
+            let mut br: f32 = ui.data_mut(|d| d.get_temp(key).unwrap_or((brightness_of(&s.color) * 100.0).round() as f32));
+            let r = ui.add(egui::Slider::new(&mut br, -100.0..=100.0).suffix("%")).labelled_by(label.id);
+            if r.changed() {
+                ui.data_mut(|d| d.insert_temp(key, br));
+            }
+            if r.drag_stopped() || (r.changed() && !r.dragged()) {
+                let mut ng = g.clone();
+                ng.stops[sel].color = with_brightness(s.color.clone(), br as f64 / 100.0);
                 ui.data_mut(|d| d.remove::<f32>(key));
                 out = Some(ng);
             }

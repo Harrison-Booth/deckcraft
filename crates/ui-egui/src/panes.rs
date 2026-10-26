@@ -1500,6 +1500,10 @@ mod smartart_tests;
 mod background_tests;
 
 #[cfg(test)]
+#[path = "gradient_stop_tests.rs"]
+mod gradient_stop_tests;
+
+#[cfg(test)]
 #[path = "pattern_fill_tests.rs"]
 mod pattern_fill_tests;
 
