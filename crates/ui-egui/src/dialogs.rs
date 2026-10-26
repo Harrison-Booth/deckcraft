@@ -49,6 +49,7 @@ fn title(id: &str) -> &'static str {
         "tabs" => "Tabs",
         "font" => "Font",
         "about" => "About DeckCraft",
+        "failedLink" => "Couldn't open your web browser",
         "preferences" => "Preferences",
         "autocorrect" => "AutoCorrect",
         "gridOptions" => "Grid Options",
@@ -100,6 +101,7 @@ pub fn show(app: &mut SlideApp, ctx: &egui::Context) {
         ui.set_min_width(match d.id.as_str() {
             "themeColors" => 700.0,
             "themeFonts" => 400.0,
+            "failedLink" => 460.0,
             _ => 340.0,
         });
         if d.id == "themeColors" {
@@ -2285,6 +2287,29 @@ fn body(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
             }
             let (ok, cancel) = buttons(ui, "Close");
             ok || cancel
+        }
+        "failedLink" => {
+            let text = |d: &Dialog, k: &str| d.params.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+            let (url, details) = (text(d, "url"), text(d, "details"));
+            ui.label("DeckCraft sent nothing. To report the issue, open this address in a browser and paste the details into the form:");
+            ui.add_space(6.0);
+            let label = ui.label("Address");
+            ui.add(egui::TextEdit::singleline(&mut url.as_str()).desired_width(f32::INFINITY).id_salt("failedLink.url")).labelled_by(label.id);
+            ui.add_space(6.0);
+            let label = ui.label("Details");
+            ui.add(egui::TextEdit::multiline(&mut details.as_str()).desired_width(f32::INFINITY).desired_rows(6).id_salt("failedLink.details"))
+                .labelled_by(label.id);
+            ui.add_space(8.0);
+            let mut done = false;
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.add(egui::Button::new("Close").min_size(vec2(72.0, 24.0))).clicked() {
+                    done = true;
+                }
+                if ui.add(egui::Button::new("Copy Details").min_size(vec2(96.0, 24.0))).clicked() {
+                    ui.ctx().copy_text(format!("{details}\n\n{}", deckcraft_engine::links::NEW_ISSUE));
+                }
+            });
+            done
         }
         "autocorrect" => {
             let pr = &mut app.session.prefs;

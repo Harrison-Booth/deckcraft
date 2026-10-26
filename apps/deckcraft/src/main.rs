@@ -124,6 +124,7 @@ fn services() -> Services {
         pick_save: Some(Box::new(|name: &str| rfd::FileDialog::new().set_file_name(name).save_file().map(|p| p.to_string_lossy().to_string()))),
         read: Some(Box::new(|p: &str| std::fs::read(p).map_err(|e| e.to_string()))),
         write: Some(Box::new(|p: &str, b: &[u8]| std::fs::write(p, b).map_err(|e| e.to_string()))),
+        open_url: Some(Box::new(open_in_browser)),
         clipboard_image: Some(Box::new(pasteboard::image_png)),
         clipboard_html: Some(Box::new(pasteboard::html)),
         clipboard_set_html: Some(Box::new(pasteboard::set_html)),
@@ -133,6 +134,38 @@ fn services() -> Services {
             .then(|| Box::new(audio::CpalOut::default()) as Box<dyn deckcraft_media::AudioOut>),
         ..Default::default()
     }
+}
+
+/// Opens `url` with the system's opener and says when that fails. Only https addresses are opened.
+/// An opener that exits with an error within half a second (no browser configured) counts as a
+/// failure; one still running is left to finish on its own.
+fn open_in_browser(url: &str) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    if !url.starts_with("https://") {
+        return Err(format!("won't open {url}: not an https address"));
+    }
+    let mut opener = if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else if cfg!(target_os = "windows") {
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    } else {
+        Command::new("xdg-open")
+    };
+    let mut child = opener.arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map_err(|e| e.to_string())?;
+    for _ in 0..10 {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) => return Err(format!("the system opener failed: {status}")),
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 const APP_ID: &str = "ai.storyteller.deckcraft";
@@ -267,6 +300,10 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             deckcraft_ui_egui::install_ime_pass_hooks(&cc.egui_ctx);
             let mut app = SlideApp::new(Session::new(), services());
+            app.graphics = cc.wgpu_render_state.as_ref().map(|rs| {
+                let i = rs.adapter.get_info();
+                format!("{} ({:?}, {:?})", i.name, i.backend, i.device_type)
+            });
             load_prefs(&mut app);
             app.enable_update_checks();
             // AutoRecover: reopen what a previous run left unsaved, then keep it current.
@@ -305,6 +342,13 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_browser_opener_only_takes_https_addresses() {
+        for url in ["file:///etc/passwd", "http://example.com", "javascript:alert(1)", ""] {
+            assert!(open_in_browser(url).is_err(), "{url}");
+        }
+    }
 
     /// #279: on macOS the process ends inside `on_exit`, before eframe would tear the window down.
     /// The check runs in a child (this test binary again), since on macOS it ends the process.

@@ -1410,6 +1410,16 @@ fn account(app: &mut SlideApp, ui: &mut Ui) {
             ) {
                 let _ = app.run("app.about", json!({}));
             }
+            if task(
+                ui,
+                Icon::CommentsBubble,
+                "Report an Issue…",
+                "Report an Issue…",
+                "Opens a new GitHub issue with the version and system details filled in. Nothing is sent until you submit it.",
+                true,
+            ) {
+                let _ = app.run("app.reportIssue", json!({}));
+            }
             ui.hyperlink_to("Join our community on Discord", deckcraft_engine::links::DISCORD);
             ui.hyperlink_to("Source on GitHub", deckcraft_engine::links::GITHUB);
         });

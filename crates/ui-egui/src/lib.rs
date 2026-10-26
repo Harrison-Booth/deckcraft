@@ -24,6 +24,7 @@ pub mod opening;
 pub mod panes;
 mod preview;
 pub mod qat;
+pub mod report_issue;
 pub mod ribbon;
 pub mod selpane;
 pub mod settings;
@@ -263,6 +264,9 @@ pub struct Services {
     pub clipboard_set_html: Option<Box<dyn FnMut(&str, &str) -> bool>>,
     /// Audio output for media playback (cpal on desktop); without one media plays silently.
     pub audio_out: Option<Box<dyn deckcraft_media::AudioOut>>,
+    /// Open an address in the system browser, reporting when none opened. Without one, addresses
+    /// go to egui, which cannot tell.
+    pub open_url: Option<Box<dyn Fn(&str) -> Result<(), String>>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -442,6 +446,7 @@ pub const UI_COMMANDS: &[(&str, &str, Option<&str>, &str)] = &[
     ),
     ("app.about", "About DeckCraft", None, "{}"),
     ("app.checkUpdates", "Check for Updates…", None, "{}"),
+    ("app.reportIssue", "Report an Issue…", None, "{open?: bool} → {url, details, opened}"),
     ("app.palette", "Command Palette", Some("Cmd+Shift+P"), "{}"),
     ("app.preferences", "Preferences…", Some("Cmd+,"), "{}"),
     ("app.openDialog", "Open…", None, "{purpose?}"),
@@ -597,6 +602,9 @@ pub struct SlideApp {
     /// creating or closing a presentation leaves it.
     pub backstage: Option<backstage::Backstage>,
     pending_urls: Vec<String>,
+    /// The graphics adapter the host rendered with, for Report an Issue….
+    pub graphics: Option<String>,
+    pixels_per_point: f32,
     #[cfg(not(target_arch = "wasm32"))]
     updates_rt: updates_ui::Runtime,
     /// Text for the system clipboard from a Copy or Cut command, handed over on the next frame.
@@ -842,6 +850,8 @@ impl SlideApp {
             integrated_titlebar: false,
             backstage: None,
             pending_urls: vec![],
+            graphics: None,
+            pixels_per_point: 1.0,
             #[cfg(not(target_arch = "wasm32"))]
             updates_rt: updates_ui::Runtime::default(),
             pending_copy: None,
@@ -1427,8 +1437,9 @@ impl SlideApp {
             }
             "app.links" => {
                 use deckcraft_engine::links::*;
-                return Ok(json!({"discord": DISCORD, "website": WEBSITE, "apps": APPS, "appPage": APP_PAGE, "github": GITHUB}));
+                return Ok(json!({"discord": DISCORD, "website": WEBSITE, "apps": APPS, "appPage": APP_PAGE, "github": GITHUB, "issues": ISSUES}));
             }
+            "app.reportIssue" => return Ok(self.report_issue(p.get("open").and_then(Value::as_bool).unwrap_or(true))),
             _ => return Err(format!("unknown UI command `{id}`")),
         }
         Ok(Value::Null)
@@ -2026,6 +2037,7 @@ impl SlideApp {
             log::debug!("ignoring SlideApp::logic for render-only viewport {:?}", ctx.viewport_id());
             return;
         }
+        self.pixels_per_point = ctx.pixels_per_point();
         self.tick_hidden_show(ctx, web_time::Instant::now());
         // `raw_input_hook` runs before `App::logic`. In a full pass egui has already built
         // `PointerState` and `keys_down` from every injected event, so retracting the events after
@@ -3419,6 +3431,34 @@ impl SlideApp {
         self.pending_urls.push(url.to_string());
     }
 
+    /// Report an Issue…: opens the prefilled GitHub form (unless `open` is false) and returns
+    /// what it holds. Nothing is sent; the user reviews and submits the form on GitHub. When no
+    /// browser opens, the details and the address stay on screen to copy.
+    fn report_issue(&mut self, open: bool) -> Value {
+        let doc = self.session.active().map(|d| d.path.as_deref());
+        let facts = report_issue::facts(self.graphics.as_deref(), self.pixels_per_point, doc);
+        let url = report_issue::url(&facts);
+        let details = report_issue::details_text(&facts);
+        let mut opened = false;
+        if open {
+            let result = match &self.services.open_url {
+                Some(open_url) => open_url(&url),
+                None => {
+                    self.open_url(&url);
+                    Ok(())
+                }
+            };
+            opened = result.is_ok();
+            if let Err(e) = result {
+                log::warn!("Report an Issue…: no browser opened: {e}");
+                let mut d = dialogs::Dialog::new("failedLink");
+                d.params = json!({"url": url, "details": details});
+                self.dialog = Some(d);
+            }
+        }
+        json!({"url": url, "details": details, "opened": opened})
+    }
+
     /// Drain pending control requests, executing ordinary requests and admitting screenshots for
     /// later saving and reply.
     fn drain_control(&mut self, ctx: &egui::Context) {
@@ -3572,6 +3612,8 @@ mod ime_tests;
 mod last_color_tests;
 #[cfg(test)]
 mod replacefonts_tests;
+#[cfg(test)]
+mod report_issue_tests;
 #[cfg(test)]
 mod reuse_picker_tests;
 #[cfg(test)]
