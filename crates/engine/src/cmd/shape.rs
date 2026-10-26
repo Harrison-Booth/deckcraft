@@ -99,7 +99,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Shape Outline",
             ["Shape Format", "Shape Styles"],
             None,
-            "{color?, none?, width?: pt, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow, tail?, headSize?: sm|med|lg, tailSize?, reset?, ids?}; a group also formats its members",
+            "{color?, none?, width?: pt, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow, tail?, headSize?: sm|med|lg, tailSize? (both width and length), headWidth?, headLength?, tailWidth?, tailLength? (sm|med|lg), reset?, ids?}; a group also formats its members",
             has_selection,
             line
         ),
@@ -728,6 +728,8 @@ fn line(s: &mut Session, p: &Value) -> Result<Value> {
     });
     let end_size = |k: &str| str_param(p, k).filter(|v| matches!(*v, "sm" | "med" | "lg")).map(str::to_string);
     let (head_size, tail_size) = (end_size("headSize"), end_size("tailSize"));
+    let (head_w, head_len) = (end_size("headWidth"), end_size("headLength"));
+    let (tail_w, tail_len) = (end_size("tailWidth"), end_size("tailLength"));
     let join = str_param(p, "join").map(|c| match c {
         "bevel" => deckcraft_model::style::LineJoin::Bevel,
         "miter" => deckcraft_model::style::LineJoin::Miter,
@@ -783,6 +785,17 @@ fn line(s: &mut Session, p: &Value) -> Result<Value> {
             if let (Some(e), Some(sz)) = (end.as_mut(), size) {
                 e.w.clone_from(sz);
                 e.len.clone_from(sz);
+            }
+        }
+        // PowerPoint sizes an arrowhead's width and length separately.
+        for (end, w, len) in [(&mut l.head, &head_w, &head_len), (&mut l.tail, &tail_w, &tail_len)] {
+            if let Some(e) = end.as_mut() {
+                if let Some(w) = w {
+                    e.w.clone_from(w);
+                }
+                if let Some(len) = len {
+                    e.len.clone_from(len);
+                }
             }
         }
         Ok(())
