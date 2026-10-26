@@ -602,6 +602,8 @@ fn dash_params(v: &str) -> Value {
     match v {
         "roundDot" => json!({"dash": "dot", "cap": "round"}),
         "squareDot" => json!({"dash": "dot", "cap": "square"}),
+        // Plain Dot has a flat cap, so it does not stay Round Dot or Square Dot.
+        "dot" => json!({"dash": "dot", "cap": "flat"}),
         v => json!({"dash": v}),
     }
 }
@@ -1551,6 +1553,13 @@ mod tests {
     use egui_kittest::Harness;
     use egui_kittest::kittest::{NodeT, Queryable};
     use serde_json::json;
+
+    #[test]
+    fn dash_types_set_the_dash_and_the_cap_that_shows_them() {
+        assert_eq!(super::dash_params("roundDot"), json!({"dash": "dot", "cap": "round"}));
+        assert_eq!(super::dash_params("dot"), json!({"dash": "dot", "cap": "flat"}));
+        assert_eq!(super::dash_params("lgDash"), json!({"dash": "lgDash"}));
+    }
 
     use super::{fill_transparency_to_apply, solid_fill_transparency_percent};
     use crate::{Services, SlideApp};
