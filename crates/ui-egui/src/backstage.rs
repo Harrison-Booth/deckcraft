@@ -1415,7 +1415,7 @@ fn account(app: &mut SlideApp, ui: &mut Ui) {
                 Icon::CommentsBubble,
                 "Report an Issue…",
                 "Report an Issue…",
-                "Opens a new GitHub issue with the version and system details filled in. Nothing is sent until you submit it.",
+                "Opens a new GitHub issue with the version and system details filled in. No issue is created until you submit the form.",
                 true,
             ) {
                 let _ = app.run("app.reportIssue", json!({}));

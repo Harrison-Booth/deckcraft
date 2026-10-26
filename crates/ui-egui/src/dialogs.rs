@@ -2291,7 +2291,7 @@ fn body(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
         "failedLink" => {
             let text = |d: &Dialog, k: &str| d.params.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
             let (url, details) = (text(d, "url"), text(d, "details"));
-            ui.label("DeckCraft sent nothing. To report the issue, open this address in a browser and paste the details into the form:");
+            ui.label("No issue was created. To report it, open this address in a browser and paste the details into the form:");
             ui.add_space(6.0);
             let label = ui.label("Address");
             ui.add(egui::TextEdit::singleline(&mut url.as_str()).desired_width(f32::INFINITY).id_salt("failedLink.url")).labelled_by(label.id);

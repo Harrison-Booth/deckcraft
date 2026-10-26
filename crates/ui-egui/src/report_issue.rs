@@ -2,7 +2,8 @@
 //!
 //! The address opens `bug_report.yml` with the version, system and document type filled in, the
 //! same field ids PhotoCraft's link uses. The user reviews the form and submits it on GitHub;
-//! DeckCraft sends nothing. A document contributes its file type only (never its name, path or
+//! No issue is created until the user submits the form; opening the address does show GitHub the
+//! prefilled values, which are listed above. A document contributes its file type only (never its name, path or
 //! contents).
 
 use deckcraft_engine::links::NEW_ISSUE;
@@ -46,6 +47,7 @@ fn encode(s: &str) -> String {
     out
 }
 
+/// The operating system and architecture, or `Web` in the browser.
 fn os_name() -> String {
     if cfg!(target_arch = "wasm32") {
         return "Web".into();
@@ -111,10 +113,12 @@ pub fn details_text(f: &Facts) -> String {
 mod tests {
     use super::*;
 
+    /// The query parameters of `url`, still percent-encoded.
     fn params(url: &str) -> Vec<(&str, &str)> {
         url.split_once('?').map(|(_, q)| q).unwrap_or_default().split('&').filter_map(|kv| kv.split_once('=')).collect()
     }
 
+    /// `s` with its percent escapes resolved.
     fn decode(s: &str) -> String {
         let b = s.as_bytes();
         let mut out = vec![];
