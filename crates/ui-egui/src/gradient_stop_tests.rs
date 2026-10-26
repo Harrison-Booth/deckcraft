@@ -37,6 +37,18 @@ fn brightness_reads_back_what_it_wrote_and_keeps_alpha() {
     assert_eq!(brightness_of(&with_brightness(ColorRef::scheme(SchemeSlot::Accent1), 9.0)), 1.0);
 }
 
+/// An order-sensitive transform before the pair stays before it, and one after stays after.
+#[test]
+fn brightness_keeps_the_place_of_the_luminance_transforms() {
+    let c = ColorRef::scheme(SchemeSlot::Accent1)
+        .with(ColorTransform::Tint(50_000))
+        .with(ColorTransform::LumMod(60_000))
+        .with(ColorTransform::LumOff(40_000))
+        .with(ColorTransform::Alpha(75_000));
+    let darker = with_brightness(c, -0.2);
+    assert_eq!(darker.mods, vec![ColorTransform::Tint(50_000), ColorTransform::LumMod(80_000), ColorTransform::Alpha(75_000)]);
+}
+
 fn stop_color(h: &Harness<'_, SlideApp>, id: ShapeId, stop: usize) -> ColorRef {
     match &h.state().session.active().unwrap().shape(id).unwrap().fill {
         Some(Fill::Gradient(g)) => g.stops[stop].color.clone(),
