@@ -27,7 +27,8 @@ const MAX_MEAN_FRAME: Duration = Duration::from_millis(250);
 /// `cargo test` threads share the process.
 const MAX_RSS_GROWTH: u64 = 256 << 20;
 
-/// Resident set size in bytes (Linux, Windows and macOS); `None` where the platform can't say.
+/// Physical memory in use, in bytes: the resident set size on Linux and macOS, the working set on
+/// Windows. `None` where the platform cannot say.
 fn rss_bytes() -> Option<u64> {
     memory_stats::memory_stats().map(|m| m.physical_mem as u64)
 }
@@ -205,8 +206,8 @@ fn soak(seed: u64, steps: usize) {
     assert!(mean <= MAX_MEAN_FRAME, "mean frame {mean:?} over {MAX_MEAN_FRAME:?}; seed {seed}");
     if let (Some(start), Some(end)) = (rss_start, rss_bytes()) {
         let grew = end.saturating_sub(start);
-        eprintln!("ui soak seed {seed}: RSS {} -> {} MiB", start >> 20, end >> 20);
-        assert!(grew <= MAX_RSS_GROWTH, "RSS grew {} MiB over {} MiB; seed {seed}", grew >> 20, MAX_RSS_GROWTH >> 20);
+        eprintln!("ui soak seed {seed}: memory {} -> {} MiB", start >> 20, end >> 20);
+        assert!(grew <= MAX_RSS_GROWTH, "memory grew {} MiB over {} MiB; seed {seed}", grew >> 20, MAX_RSS_GROWTH >> 20);
     }
 }
 

@@ -64,7 +64,8 @@ fn params(r: &mut Rng, s: &Session) -> Value {
     }
 }
 
-/// Resident set size in bytes (Linux, Windows and macOS); `None` where the platform can't say.
+/// Physical memory in use, in bytes: the resident set size on Linux and macOS, the working set on
+/// Windows. `None` where the platform cannot say.
 fn rss_bytes() -> Option<u64> {
     memory_stats::memory_stats().map(|m| m.physical_mem as u64)
 }
@@ -156,8 +157,8 @@ fn soak(seed: u64, steps: usize) {
     assert!(edits * 10 >= steps, "only {edits} of {steps} steps changed the document; seed {seed}");
     if let (Some(start), Some(end)) = (rss_start, rss_bytes()) {
         let grew = end.saturating_sub(start);
-        eprintln!("soak seed {seed}: {edits} of {steps} steps edited, RSS {} -> {} MiB", start >> 20, end >> 20);
-        assert!(grew <= MAX_RSS_GROWTH, "RSS grew {} MiB over {} MiB; seed {seed}", grew >> 20, MAX_RSS_GROWTH >> 20);
+        eprintln!("soak seed {seed}: {edits} of {steps} steps edited, memory {} -> {} MiB", start >> 20, end >> 20);
+        assert!(grew <= MAX_RSS_GROWTH, "memory grew {} MiB over {} MiB; seed {seed}", grew >> 20, MAX_RSS_GROWTH >> 20);
     } else {
         eprintln!("soak seed {seed}: {edits} of {steps} steps edited");
     }
