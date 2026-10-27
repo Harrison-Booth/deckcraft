@@ -272,9 +272,9 @@ mod tests {
         click(&mut h, Role::CheckBox, "Do not rotate text");
         assert_eq!(text(&h).body.upright, Some(true));
         click(&mut h, Role::CheckBox, "Do not rotate text");
-        assert_eq!(text(&h).body.upright, None);
+        assert_eq!(text(&h).body.upright, Some(false));
         click(&mut h, Role::Button, "No line");
-        assert_eq!(run_props(&h).outline, None);
+        assert_eq!(run_props(&h).outline, Some(deckcraft_model::Line::none()));
     }
 
     /// A blank slide with one selected rectangle, its fill set by `fill` (none for an automatic fill),

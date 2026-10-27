@@ -5670,6 +5670,12 @@ fn text_fill_outline_and_upright_commands() {
     assert_eq!(g.stops[1].color, deckcraft_model::ColorRef::scheme(deckcraft_model::SchemeSlot::Accent1));
     assert_eq!(g.stops[0].color.base, ColorBase::Rgb { rgb: Rgba::rgb(0xC0, 0, 0) });
     assert_eq!(g.shape, GradientShape::Linear { angle: 90.0, scaled: false });
+    // A new angle keeps the stops, with their transparency.
+    s.execute("format.textTransparency", &json!({"value": 0.5})).unwrap();
+    s.execute("format.textFill", &json!({"mode": "gradient", "angle": 180})).unwrap();
+    let Some(Fill::Gradient(g2)) = run(&s).fill else { panic!("gradient expected") };
+    assert_eq!(g2.shape, GradientShape::Linear { angle: 180.0, scaled: false });
+    assert!(g2.stops.iter().all(|st| (st.color.alpha() - 0.5).abs() < 1e-9), "{:?}", g2.stops);
     s.execute("format.textFill", &json!({"mode": "solid"})).unwrap();
     let Some(Fill::Solid { color }) = run(&s).fill else { panic!("solid expected") };
     assert_eq!(color.base, ColorBase::Rgb { rgb: Rgba::rgb(0xC0, 0, 0) });
@@ -5689,13 +5695,20 @@ fn text_fill_outline_and_upright_commands() {
     assert_eq!(color.base, ColorBase::Rgb { rgb: Rgba::rgb(0x33, 0x66, 0x99) });
     s.execute("format.textOutline", &json!({"dash": "solid"})).unwrap();
     assert_eq!(run(&s).outline.unwrap().dash, None);
-    for bad in [json!({"dash": "wavy"}), json!({"width": -1}), json!({"width": 1e9}), json!({"width": "wide"})] {
+    for bad in [
+        json!({"dash": "wavy"}),
+        json!({"dash": 123}),
+        json!({"color": "not-a-color"}),
+        json!({"width": -1}),
+        json!({"width": 1e9}),
+        json!({"width": "wide"}),
+    ] {
         assert!(s.execute("format.textOutline", &bad).is_err(), "{bad}");
     }
     s.execute("format.textOutline", &json!({})).unwrap();
-    assert_eq!(run(&s).outline, None);
+    assert_eq!(run(&s).outline, Some(deckcraft_model::Line::none()));
     s.execute("edit.undo", &json!({})).unwrap();
-    assert!(run(&s).outline.is_some());
+    assert_eq!(run(&s).outline.unwrap().width, Some(2.5));
 
     // Upright and direction.
     assert_eq!(body(&s).upright, None);
@@ -5704,7 +5717,7 @@ fn text_fill_outline_and_upright_commands() {
     s.execute("format.direction", &json!({"dir": "rotate270"})).unwrap();
     assert_eq!(body(&s).vert, Some(deckcraft_model::text::TextDir::Vertical270));
     s.execute("format.upright", &json!({"on": false})).unwrap();
-    assert_eq!(body(&s).upright, None);
+    assert_eq!(body(&s).upright, Some(false));
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(body(&s).upright, Some(true));
 }

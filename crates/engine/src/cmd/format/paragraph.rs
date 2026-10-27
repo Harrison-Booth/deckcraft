@@ -396,7 +396,7 @@ pub(super) fn wrap(s: &mut Session, p: &Value) -> Result<Value> {
 
 pub(super) fn upright(s: &mut Session, p: &Value) -> Result<Value> {
     let on = bool_or(p, "on", true);
-    format_body(s, &move |b| b.upright = on.then_some(true))
+    format_body(s, &move |b| b.upright = Some(on))
 }
 
 pub(super) fn margins(s: &mut Session, p: &Value) -> Result<Value> {

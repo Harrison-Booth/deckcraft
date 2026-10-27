@@ -19,7 +19,7 @@ pub(super) fn text_shadow(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Text Outline. With `none`, or with neither `color`, `width` nor `dash`, the outline goes; otherwise
-/// the given parts replace those of the run's outline (a new one is the text colour's black, 0.75 pt, solid).
+/// the given parts replace those of the outline the run shows (a new one is the text colour's black, 0.75 pt, solid).
 pub(super) fn text_outline(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "format.textOutline";
     let c = color_param(p, "color");
@@ -31,6 +31,13 @@ pub(super) fn text_outline(s: &mut Session, p: &Value) -> Result<Value> {
                 .ok_or_else(|| bad(CMD, "`width` is a number of points from 0 to 1584"))?,
         ),
     };
+    // A part that is given but not understood is an error, not a request to remove the outline.
+    if p.get("color").is_some_and(|v| !v.is_null()) && c.is_none() {
+        return Err(bad(CMD, "`color` is not a colour"));
+    }
+    if p.get("dash").is_some_and(|v| !v.is_null() && !v.is_string()) {
+        return Err(bad(CMD, "`dash` is a dash name"));
+    }
     let dash = match str_param(p, "dash") {
         None => None,
         Some("solid") => Some(None),
@@ -38,10 +45,14 @@ pub(super) fn text_outline(s: &mut Session, p: &Value) -> Result<Value> {
         Some(d) => return Err(bad(CMD, format!("unknown dash `{d}`"))),
     };
     if bool_or(p, "none", false) || (c.is_none() && w.is_none() && dash.is_none()) {
-        return format_run(s, &|r| r.outline = None);
+        // An outline the text only inherits is switched off with an explicit no-line of its own.
+        let inherited = current_run(s).outline.is_some();
+        return format_run(s, &move |r| r.outline = inherited.then(Line::none));
     }
+    let inherited = current_run(s).outline;
     format_run(s, &move |r| {
-        let mut l = r.outline.take().unwrap_or_else(|| Line::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK), 0.75));
+        let mut l = r.outline.take().or_else(|| inherited.clone()).unwrap_or_else(|| Line::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK), 0.75));
+        l.width.get_or_insert(0.75);
         if let Some(c) = &c {
             l.fill = Some(Fill::solid(c.clone()));
         } else if !matches!(l.fill, Some(Fill::Solid { .. })) {
