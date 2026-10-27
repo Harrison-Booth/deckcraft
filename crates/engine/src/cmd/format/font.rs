@@ -145,6 +145,43 @@ pub(super) fn text_transparency(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
+/// The colour the selected text shows now, for a fill that keeps it (solid, or a gradient's start).
+fn shown_text_color(s: &Session) -> ColorRef {
+    match current_run(s).fill {
+        Some(Fill::Solid { color }) => color,
+        Some(Fill::Gradient(g)) => g.stops.first().map_or_else(|| ColorRef::scheme(SchemeSlot::Tx1), |st| st.color.clone()),
+        _ => ColorRef::scheme(SchemeSlot::Tx1),
+    }
+}
+
+/// Text Fill: No fill, Solid fill (the colour it shows now) or Gradient fill (that colour fading
+/// into the theme's accent 1, or accent 2 when it already is that, at `angle` degrees clockwise
+/// from left to right). A tint of the colour would not do: white or black text hardly changes.
+pub(super) fn text_fill(s: &mut Session, p: &Value) -> Result<Value> {
+    use deckcraft_model::style::{Gradient, GradientShape, GradientStop};
+    const CMD: &str = "format.textFill";
+    let base = shown_text_color(s);
+    let fill = match str_param(p, "mode") {
+        Some("none") => Fill::None,
+        Some("solid") => Fill::solid(base),
+        Some("gradient") => {
+            let angle = f64_or(p, "angle", 0.0);
+            if !angle.is_finite() {
+                return Err(bad(CMD, "`angle` must be a number of degrees"));
+            }
+            let accent = ColorRef::scheme(if base == ColorRef::scheme(SchemeSlot::Accent1) { SchemeSlot::Accent2 } else { SchemeSlot::Accent1 });
+            Fill::Gradient(Gradient {
+                stops: vec![GradientStop { pos: 0.0, color: base }, GradientStop { pos: 1.0, color: accent }],
+                shape: GradientShape::Linear { angle: angle.rem_euclid(360.0), scaled: false },
+                rotate_with_shape: true,
+                tile: [0.0; 4],
+            })
+        }
+        _ => return Err(bad(CMD, "`mode` is none, solid or gradient")),
+    };
+    format_run(s, &move |r| r.fill = Some(fill.clone()))
+}
+
 /// The `lang` and `noProof` params of the language commands, checked: a run-props setter.
 fn language_edit(id: &str, p: &Value) -> Result<impl Fn(&mut RunProps) + Send + Sync + 'static> {
     let lang = str_param(p, "lang").map(str::to_string);

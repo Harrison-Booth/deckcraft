@@ -104,7 +104,10 @@ pub(crate) fn layout_scaled(ctx: &Ctx, shape: &Shape, body: &TextBody, bp: &Body
     let col_gap = bp.col_spacing.unwrap_or(0.0).max(0.0);
     let col_w = ((inner.width() - col_gap * (ncols as f64 - 1.0)) / ncols as f64).max(1.0);
 
-    let mut out = TextLayout { inner, font_scale: scale, line_reduction: reduce, rotation, ..Default::default() };
+    // "Do not rotate text": turn the text back by the shape's own turn about its rect's centre.
+    // shortcut: a rotated group around the shape is not counted, when it matters read the parents' turns too.
+    let held = if bp.upright == Some(true) { resolve::xfrm(ctx, shape).rot } else { 0.0 };
+    let mut out = TextLayout { inner, font_scale: scale, line_reduction: reduce, rotation: rotation - held, ..Default::default() };
     let mut y = 0.0;
     let mut numbering: Vec<u32> = vec![0; 9];
     let mut all_lines: Vec<(LineInfo, LinePlace, f64, Option<(String, f64, f64)>)> = vec![];
@@ -435,6 +438,7 @@ pub(crate) fn layout_scaled(ctx: &Ctx, shape: &Shape, body: &TextBody, bp: &Body
                 fake_bold: false,
                 fake_italic: false,
                 outline: None,
+                outline_dash: vec![],
                 para: line.para,
                 chars: (0, 0),
                 link: false,
@@ -476,6 +480,7 @@ pub(crate) fn layout_scaled(ctx: &Ctx, shape: &Shape, body: &TextBody, bp: &Body
                     fake_bold: st.fake_bold,
                     fake_italic: st.fake_italic,
                     outline: st.outline,
+                    outline_dash: st.outline_dash.clone(),
                     para: line.para,
                     chars: (ci, ci + 1),
                     link: st.link,

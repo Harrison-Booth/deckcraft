@@ -1,4 +1,5 @@
 use super::*;
+use deckcraft_model::text::TextDir;
 
 /// Percent transparency (0 = opaque) of a solid fill, the same number `shape.fill`'s
 /// `transparency` parameter writes as an alpha transform. Anything else (no fill, a
@@ -187,14 +188,26 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
             ui.data_mut(|d| d.insert_temp(id, (sh.descr.clone(), alt)));
         }
         "text" => {
-            ui.label(egui::RichText::new("Text Fill").font(theme::bold(13.0)));
-            color_button(app, ui, "Color", None, |c| match c {
-                Some(c) => ("format.color".into(), json!({"color": cref_param(&c)})),
-                None => ("format.color".into(), json!({"color": "tx1"})),
-            });
-            text_transparency_slider(app, ui, &sh);
+            text_fill_options(app, ui, &sh);
+            ui.add_space(6.0);
+            text_outline_options(app, ui, &sh);
             ui.add_space(6.0);
             ui.label(egui::RichText::new("Text Box").font(theme::bold(13.0)));
+            let dir = match sh.text.as_ref().and_then(|t| t.body.vert) {
+                None | Some(TextDir::Horizontal) => "horizontal",
+                Some(TextDir::Vertical270) => "rotate270",
+                Some(TextDir::Stacked | TextDir::StackedRtl) => "stacked",
+                Some(_) => "rotate90",
+            };
+            text_choice(
+                app,
+                ui,
+                "Text direction",
+                "format.direction",
+                "dir",
+                dir,
+                &[("Horizontal", "horizontal"), ("Rotate all text 90°", "rotate90"), ("Rotate all text 270°", "rotate270"), ("Stacked", "stacked")],
+            );
             ui.horizontal(|ui| {
                 ui.label("Vertical alignment");
                 for (l, a) in [("Top", "top"), ("Middle", "middle"), ("Bottom", "bottom")] {
@@ -210,6 +223,10 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
                     }
                 }
             });
+            let mut upright = sh.text.as_ref().is_some_and(|t| t.body.upright == Some(true));
+            if ui.checkbox(&mut upright, "Do not rotate text").changed() {
+                run(app, "format.upright", json!({"on": upright}));
+            }
             let wrap = sh.text.as_ref().and_then(|t| t.body.wrap).unwrap_or(true);
             let mut w = wrap;
             if ui.checkbox(&mut w, "Wrap text in shape").changed() {
@@ -388,6 +405,112 @@ pub(super) fn format_shape(app: &mut SlideApp, ui: &mut Ui) {
             line_details(app, ui, &sh);
         }
     }
+}
+
+/// A labelled drop-down on the Text Options tab: picks one of `items` (label, value) and runs
+/// `cmd` with `{key: value}`.
+fn text_choice(app: &mut SlideApp, ui: &mut Ui, label: &str, cmd: &str, key: &str, current: &str, items: &[(&str, &str)]) {
+    ui.horizontal(|ui| {
+        let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
+        let shown = items.iter().find(|(_, v)| *v == current).map_or(current, |(l, _)| *l);
+        let combo = egui::ComboBox::from_id_salt(("fmt-text", cmd, key)).selected_text(shown).width(150.0).show_ui(ui, |ui| {
+            for (l, v) in items {
+                if ui.selectable_label(*v == current, *l).clicked() {
+                    run(app, cmd, json!({key: v}));
+                }
+            }
+        });
+        let _ = combo.response.labelled_by(field.id);
+    });
+}
+
+/// The first run's own props of a shape's text: what the Text Options tab reads.
+fn first_run_props(sh: &deckcraft_model::Shape) -> Option<&deckcraft_model::text::RunProps> {
+    sh.text.as_ref().and_then(|t| t.paragraphs.iter().flat_map(|p| p.runs.iter()).next()).map(|r| &r.props)
+}
+
+/// Text Fill: No fill, Solid fill or Gradient fill (with its angle), the colour and the transparency.
+fn text_fill_options(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
+    use deckcraft_model::style::GradientShape;
+    ui.label(egui::RichText::new("Text Fill").font(theme::bold(13.0)));
+    let fill = first_run_props(sh).and_then(|r| r.fill.clone());
+    let (kind, angle) = match &fill {
+        Some(Fill::None) => ("none", 0.0),
+        Some(Fill::Gradient(g)) => ("gradient", if let GradientShape::Linear { angle, .. } = g.shape { angle } else { 0.0 }),
+        _ => ("solid", 0.0),
+    };
+    ui.horizontal(|ui| {
+        for (l, m) in [("No fill", "none"), ("Solid fill", "solid"), ("Gradient fill", "gradient")] {
+            if ui.selectable_label(kind == m, l).clicked() && kind != m {
+                run(app, "format.textFill", json!({"mode": m}));
+            }
+        }
+    });
+    if kind == "solid" {
+        color_button(app, ui, "Color", None, |c| match c {
+            Some(c) => ("format.color".into(), json!({"color": cref_param(&c)})),
+            None => ("format.color".into(), json!({"color": "tx1"})),
+        });
+    }
+    if kind == "gradient" {
+        ui.horizontal(|ui| {
+            ui.add_sized(vec2(90.0, 20.0), egui::Label::new("Angle"));
+            if let Some(nv) = widgets::spinner(ui, "text-fill-angle", "Angle", angle, 15.0, "°", 70.0) {
+                run(app, "format.textFill", json!({"mode": "gradient", "angle": nv}));
+            }
+        });
+    }
+    if kind != "none" {
+        text_transparency_slider(app, ui, sh);
+    }
+}
+
+/// Text Outline: No line or Solid line, with its colour, width and dash.
+fn text_outline_options(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
+    ui.label(egui::RichText::new("Text Outline").font(theme::bold(13.0)));
+    let line = first_run_props(sh).and_then(|r| r.outline.clone()).filter(|l| matches!(l.fill, Some(Fill::Solid { .. })));
+    ui.horizontal(|ui| {
+        if ui.selectable_label(line.is_none(), "No line").clicked() && line.is_some() {
+            run(app, "format.textOutline", json!({"none": true}));
+        }
+        if ui.selectable_label(line.is_some(), "Solid line").clicked() && line.is_none() {
+            run(app, "format.textOutline", json!({"width": 0.75}));
+        }
+    });
+    let Some(line) = line else { return };
+    color_button(app, ui, "Color", None, |c| match c {
+        Some(c) => ("format.textOutline".into(), json!({"color": cref_param(&c)})),
+        None => ("format.textOutline".into(), json!({"none": true})),
+    });
+    ui.horizontal(|ui| {
+        ui.add_sized(vec2(90.0, 20.0), egui::Label::new("Width"));
+        if let Some(nv) = widgets::spinner(ui, "text-outline-width", "Width", line.width.unwrap_or(0.75), 0.25, " pt", 70.0) {
+            run(app, "format.textOutline", json!({"width": nv.clamp(0.0, 1584.0)}));
+        }
+    });
+    let dash = match &line.dash {
+        None => "solid",
+        Some(deckcraft_model::style::Dash::Preset { name }) => name.as_str(),
+        Some(_) => "custom",
+    };
+    text_choice(
+        app,
+        ui,
+        "Dash type",
+        "format.textOutline",
+        "dash",
+        dash,
+        &[
+            ("Solid", "solid"),
+            ("Round Dot", "sysDot"),
+            ("Square Dot", "sysDash"),
+            ("Dash", "dash"),
+            ("Dash Dot", "dashDot"),
+            ("Long Dash", "lgDash"),
+            ("Long Dash Dot", "lgDashDot"),
+            ("Long Dash Dot Dot", "lgDashDotDot"),
+        ],
+    );
 }
 
 /// A labelled drop-down on the Format Shape pane: picks one of `items` (label, value) and runs

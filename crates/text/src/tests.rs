@@ -1845,3 +1845,15 @@ fn an_empty_paragraph_keeps_its_paragraph_mark_height() {
     let h = l.lines[1].bottom - l.lines[1].top;
     assert!((h - h10).abs() < 0.5, "a 10pt empty paragraph should give {h10}, got {h}");
 }
+
+#[test]
+fn do_not_rotate_text_turns_the_text_back_by_the_shapes_rotation() {
+    let (p, mut sh) = setup("Upright", 300.0, 100.0);
+    sh.xfrm = Some(Xfrm { rot: 30.0, ..Xfrm::new(0.0, 0.0, 300.0, 100.0) });
+    assert_eq!(lay(&p, &sh, 300.0, 100.0).rotation, 0.0);
+    sh.text.as_mut().unwrap().body.upright = Some(true);
+    assert_eq!(lay(&p, &sh, 300.0, 100.0).rotation, -30.0);
+    // Vertical text stays a quarter turn from the page: the shape's turn comes off that too.
+    sh.text.as_mut().unwrap().body.vert = Some(deckcraft_model::text::TextDir::Vertical);
+    assert_eq!(lay(&p, &sh, 300.0, 100.0).rotation, 60.0);
+}

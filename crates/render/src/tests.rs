@@ -2951,3 +2951,29 @@ fn pie_data_labels_take_the_chart_text_colour_when_it_has_one() {
     assert!(count(&coloured, &red) > 30, "the labels take the chart's red: {} red pixels", count(&coloured, &red));
     assert!(count(&plain, &white) > count(&coloured, &white), "the labels were white before");
 }
+
+/// A text outline draws its dash: a dashed outline leaves gaps a solid one covers.
+#[test]
+fn dashed_text_outline_leaves_gaps() {
+    use deckcraft_model::style::{Dash, Fill, Line};
+    use deckcraft_model::text::{Run, RunProps, TextBody};
+    let ink = |dash: Option<Dash>| {
+        let props = RunProps {
+            size: Some(120.0),
+            bold: Some(true),
+            fill: Some(Fill::None),
+            outline: Some(Line { dash, ..Line::solid(ColorRef::rgb(deckcraft_color::Rgba::rgb(0, 0, 0)), 3.0) }),
+            ..Default::default()
+        };
+        let mut body = TextBody::from_text("I");
+        body.paragraphs[0].runs = vec![Run::with("I", props)];
+        let sh = Shape { id: ShapeId(790), xfrm: Some(Xfrm::new(100.0, 50.0, 400.0, 300.0)), text: Some(body), ..Default::default() };
+        let img = render_slide(&deck_with(vec![sh]), 0, &RenderOpts { scale: 1.0, ..Default::default() });
+        (0..img.height).flat_map(|y| (0..img.width).map(move |x| (x, y))).filter(|(x, y)| img.pixel(*x, *y)[0] < 128).count()
+    };
+    let solid = ink(None);
+    let dashed = ink(Some(Dash::Preset { name: "dash".into() }));
+    assert!(solid > 500, "a solid outline draws ink: {solid}");
+    assert!(dashed < solid * 3 / 4, "dashes leave gaps: {dashed} of {solid}");
+    assert!(dashed > 100, "and still draw: {dashed}");
+}

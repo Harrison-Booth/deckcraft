@@ -217,6 +217,66 @@ mod tests {
         assert!(changed.iter().any(|v| (*v - 50.0).abs() < 0.5), "the changed slider shows 50%, got {changed:?}");
     }
 
+    /// Format Shape ▸ Text Options: Text Fill none and gradient, Text Outline width and dash, text
+    /// direction and Do not rotate text act on the selected shape's text.
+    #[test]
+    fn text_options_set_fill_outline_direction_and_upright() {
+        use deckcraft_model::style::{Dash, GradientShape};
+        use deckcraft_model::text::TextDir;
+        use egui::accesskit::Role;
+        let mut s = Session::with_new();
+        s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+        let id =
+            s.execute("shape.insert", &json!({"preset": "rect", "rect": [40.0, 40.0, 240.0, 80.0], "text": "Hi"})).unwrap()["id"].as_u64().unwrap();
+        s.execute("edit.select", &json!({"ids": [id]})).unwrap();
+        let mut app = SlideApp::new(s, Services::default());
+        app.ui.pane = Some("format".into());
+        app.ui.format_tab = "text".into();
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(
+            |ui, app: &mut SlideApp| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            },
+            app,
+        );
+        h.run_steps(3);
+        let text = |h: &Harness<'_, SlideApp>| h.state().session.active().unwrap().shape(ShapeId(id as u32)).unwrap().text.clone().unwrap();
+        let run_props = |h: &Harness<'_, SlideApp>| text(h).paragraphs[0].runs[0].props.clone();
+        let click = |h: &mut Harness<'_, SlideApp>, role: Role, label: &str| {
+            h.get_by_role_and_label(role, label).click();
+            h.run_steps(3);
+        };
+
+        // The outline controls wait for a solid line.
+        assert!(h.query_by_role_and_label(Role::SpinButton, "Width").is_none());
+        click(&mut h, Role::Button, "Gradient fill");
+        let Some(Fill::Gradient(g)) = run_props(&h).fill else { panic!("gradient fill expected") };
+        assert_eq!(g.shape, GradientShape::Linear { angle: 0.0, scaled: false });
+        click(&mut h, Role::Button, "No fill");
+        assert_eq!(run_props(&h).fill, Some(Fill::None));
+        // No fill: nothing left to make transparent.
+        assert!(h.query_by_role_and_label(Role::Slider, "Transparency").is_none());
+
+        click(&mut h, Role::Button, "Solid line");
+        assert_eq!(run_props(&h).outline.as_ref().and_then(|l| l.width), Some(0.75));
+        h.get_by_role_and_label(Role::ComboBox, "Dash type").click();
+        h.run_steps(3);
+        click(&mut h, Role::Button, "Long Dash");
+        assert_eq!(run_props(&h).outline.unwrap().dash, Some(Dash::Preset { name: "lgDash".into() }));
+
+        h.get_by_role_and_label(Role::ComboBox, "Text direction").click();
+        h.run_steps(3);
+        click(&mut h, Role::Button, "Stacked");
+        assert_eq!(text(&h).body.vert, Some(TextDir::Stacked));
+
+        click(&mut h, Role::CheckBox, "Do not rotate text");
+        assert_eq!(text(&h).body.upright, Some(true));
+        click(&mut h, Role::CheckBox, "Do not rotate text");
+        assert_eq!(text(&h).body.upright, None);
+        click(&mut h, Role::Button, "No line");
+        assert_eq!(run_props(&h).outline, None);
+    }
+
     /// A blank slide with one selected rectangle, its fill set by `fill` (none for an automatic fill),
     /// in Format Shape ▸ Fill.
     fn fill_pane(fill: Option<serde_json::Value>) -> Harness<'static, SlideApp> {

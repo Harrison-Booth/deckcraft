@@ -18,10 +18,43 @@ pub(super) fn text_shadow(s: &mut Session, p: &Value) -> Result<Value> {
     format_run(s, &move |r| r.shadow = if v { Some(sh.clone()) } else { None })
 }
 
+/// Text Outline. With `none`, or with neither `color`, `width` nor `dash`, the outline goes; otherwise
+/// the given parts replace those of the run's outline (a new one is the text colour's black, 0.75 pt, solid).
 pub(super) fn text_outline(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "format.textOutline";
     let c = color_param(p, "color");
-    let w = f64_or(p, "width", 0.75);
-    format_run(s, &move |r| r.outline = c.clone().map(|c| Line::solid(c, w)))
+    let w = match p.get("width") {
+        None => None,
+        Some(v) => Some(
+            v.as_f64()
+                .filter(|w| w.is_finite() && (0.0..=1584.0).contains(w))
+                .ok_or_else(|| bad(CMD, "`width` is a number of points from 0 to 1584"))?,
+        ),
+    };
+    let dash = match str_param(p, "dash") {
+        None => None,
+        Some("solid") => Some(None),
+        Some(d) if deckcraft_model::style::Dash::PRESETS.contains(&d) => Some(Some(deckcraft_model::style::Dash::Preset { name: d.to_string() })),
+        Some(d) => return Err(bad(CMD, format!("unknown dash `{d}`"))),
+    };
+    if bool_or(p, "none", false) || (c.is_none() && w.is_none() && dash.is_none()) {
+        return format_run(s, &|r| r.outline = None);
+    }
+    format_run(s, &move |r| {
+        let mut l = r.outline.take().unwrap_or_else(|| Line::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK), 0.75));
+        if let Some(c) = &c {
+            l.fill = Some(Fill::solid(c.clone()));
+        } else if !matches!(l.fill, Some(Fill::Solid { .. })) {
+            l.fill = Some(Fill::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK)));
+        }
+        if let Some(w) = w {
+            l.width = Some(w);
+        }
+        if let Some(d) = &dash {
+            l.dash.clone_from(d);
+        }
+        r.outline = Some(l);
+    })
 }
 
 pub(super) fn text_warp(s: &mut Session, p: &Value) -> Result<Value> {
