@@ -468,7 +468,7 @@ fn text_fill_options(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shap
 /// Text Outline: No line or Solid line, with its colour, width and dash.
 fn text_outline_options(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
     ui.label(egui::RichText::new("Text Outline").font(theme::bold(13.0)));
-    let line = first_run_props(sh).and_then(|r| r.outline.clone()).filter(|l| matches!(l.fill, Some(Fill::Solid { .. })));
+    let line = first_run_props(sh).and_then(|r| r.outline.clone()).filter(|l| !matches!(l.fill, Some(Fill::None)));
     ui.horizontal(|ui| {
         if ui.selectable_label(line.is_none(), "No line").clicked() && line.is_some() {
             run(app, "format.textOutline", json!({"none": true}));

@@ -55,7 +55,7 @@ pub(super) fn text_outline(s: &mut Session, p: &Value) -> Result<Value> {
         l.width.get_or_insert(0.75);
         if let Some(c) = &c {
             l.fill = Some(Fill::solid(c.clone()));
-        } else if !matches!(l.fill, Some(Fill::Solid { .. })) {
+        } else if matches!(l.fill, None | Some(Fill::None)) {
             l.fill = Some(Fill::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK)));
         }
         if let Some(w) = w {
