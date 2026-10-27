@@ -35,15 +35,12 @@ pub fn start() {
                 canvas,
                 options,
                 Box::new(move |cc| {
-                    let graphics = cc.wgpu_render_state.as_ref().map(|rs| {
-                        let info = rs.adapter.get_info();
-                        log::info!("deckcraft-web {}: wgpu backend {:?}", env!("CARGO_PKG_VERSION"), info.backend);
-                        format!("{} ({:?}, {:?}, web)", info.name, info.backend, info.device_type)
-                    });
+                    if let Some(rs) = &cc.wgpu_render_state {
+                        log::info!("deckcraft-web {}: wgpu backend {:?}", env!("CARGO_PKG_VERSION"), rs.adapter.get_info().backend);
+                    }
                     deckcraft_ui_egui::install_ime_pass_hooks(&cc.egui_ctx);
                     let inbox: Inbox = Inbox::default();
                     let mut app = SlideApp::new(Session::new(), services(inbox.clone(), cc.egui_ctx.clone()));
-                    app.graphics = graphics;
                     let q = query();
                     if !q.contains("blank") {
                         if let Err(e) = deckcraft_engine::sample::open_sample(&mut app.session) {
@@ -148,23 +145,8 @@ fn services(inbox: Inbox, ctx: egui::Context) -> Services {
                 log::error!("download of {name} failed: {e}");
             }
         })),
-        open_url: Some(Box::new(open_in_new_tab)),
         inbox: Some(inbox),
         ..Default::default()
-    }
-}
-
-/// Opens `url` in a new tab; a blocked pop-up is an error.
-fn open_in_new_tab(url: &str) -> Result<(), String> {
-    let window = web_sys::window().ok_or("no window")?;
-    match window.open_with_url_and_target(url, "_blank") {
-        Ok(Some(tab)) => {
-            // Without `noopener` (whose result is always `None`), cut the new page's link back here by hand.
-            let _ = tab.set_opener(&wasm_bindgen::JsValue::NULL);
-            Ok(())
-        }
-        Ok(None) => Err("the browser blocked the new tab".into()),
-        Err(e) => Err(format!("{e:?}")),
     }
 }
 
