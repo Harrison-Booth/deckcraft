@@ -9,7 +9,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
-use crate::fillui::{brightness_of, with_brightness};
+use crate::panels::fillui::{brightness_of, with_brightness};
 use crate::{Services, SlideApp};
 
 /// The values PowerPoint writes for its Brightness slider, read from a saved deck: +40% on accent 1
