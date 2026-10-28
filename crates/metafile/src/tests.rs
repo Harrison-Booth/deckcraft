@@ -1673,6 +1673,16 @@ fn emfplus_dual_files_play_plain_records_after_get_dc() {
 }
 
 #[test]
+fn emfplus_record_after_get_dc_in_one_comment_closes_the_plain_window() {
+    let gdi = erec(43, &cat(vec![e32(0), e32(0), e32(9), e32(9)]));
+    let get_dc = prec(0x4004, 0, &[]);
+    let fill = prec(0x400A, 0x8000, &cat(vec![h32(0xFFFF_0000), h32(1), f32s(&[0.0, 0.0, 5.0, 5.0])]));
+    let p = parse(&emf(&[plus_comment(&[plus_header(true), get_dc, fill]), gdi], [0; 4], [0; 4])).unwrap();
+    assert_eq!(p.items.len(), 1);
+    assert_eq!(path_segs(&p.items[0]).1, Some([255, 0, 0, 255]));
+}
+
+#[test]
 fn emfplus_pen_object_draws_lines_under_a_scale_transform() {
     let pen = prec(0x4008, 0x0200 | 3, &solid_pen(0xFF00_FF00, 2.0));
     let scale = prec(0x402E, 0, &f32s(&[2.0, 3.0]));

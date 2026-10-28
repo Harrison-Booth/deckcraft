@@ -270,6 +270,8 @@ impl Plus {
                 break;
             }
             let Some(rec) = tail.slice(12, dsize) else { break };
+            // Any EMF+ record ends a GetDC window; EmfPlusGetDC opens it again for its own.
+            self.gdi = false;
             let _ = self.record(cv, typ, flags, Bytes(rec));
             let Some(next) = pos.checked_add(size) else { break };
             pos = next;
