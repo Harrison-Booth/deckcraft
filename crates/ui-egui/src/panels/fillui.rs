@@ -28,14 +28,16 @@ pub fn default_gradient(base: ColorRef, angle: f64) -> Gradient {
 pub fn gradient_json(g: &Gradient) -> Value {
     let stops: Vec<Value> = g.stops.iter().map(|s| json!([s.pos, cref_param(&s.color)])).collect();
     match &g.shape {
-        GradientShape::Linear { angle, .. } => json!({"stops": stops, "kind": "linear", "angle": angle, "rotateWithShape": g.rotate_with_shape}),
+        GradientShape::Linear { angle, scaled } => {
+            json!({"stops": stops, "kind": "linear", "angle": angle, "scaled": scaled, "tile": g.tile, "rotateWithShape": g.rotate_with_shape})
+        }
         GradientShape::Path { path, focus } => {
             let kind = match path.as_str() {
                 "rect" => "rectangular",
                 "shape" => "path",
                 _ => "radial",
             };
-            json!({"stops": stops, "kind": kind, "focus": focus, "rotateWithShape": g.rotate_with_shape})
+            json!({"stops": stops, "kind": kind, "focus": focus, "tile": g.tile, "rotateWithShape": g.rotate_with_shape})
         }
     }
 }

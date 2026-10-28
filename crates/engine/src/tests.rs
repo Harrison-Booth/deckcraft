@@ -5646,3 +5646,14 @@ fn invalid_ids_array_never_falls_back_to_the_selection() {
         assert!(s.doc().unwrap().shape(deckcraft_model::ShapeId(a as u32)).is_some(), "shape deleted for {ids}");
     }
 }
+
+#[test]
+fn gradient_param_keeps_tile_and_scaled() {
+    use deckcraft_model::style::GradientShape;
+    let g = crate::cmd::shape::gradient_param(
+        &json!({"stops": [[0, "#000000"], [1, "#ffffff"]], "angle": 45, "scaled": true, "tile": [0.1, 0.2, 0.3, 0.4]}),
+    )
+    .unwrap();
+    assert_eq!(g.tile, [0.1, 0.2, 0.3, 0.4]);
+    assert!(matches!(g.shape, GradientShape::Linear { scaled: true, .. }), "{:?}", g.shape);
+}
