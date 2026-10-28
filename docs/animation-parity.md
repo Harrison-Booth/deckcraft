@@ -1,6 +1,6 @@
 # Transitions and animations: parity with PowerPoint
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-22 · **Change:** minor (Animation Pane ▸ Play From plays from the selected effect; previous: community PR wave 2026-10-14: interactive-deck triggers, canvas preview, the Animation Pane timeline, repeat and bounce end round-trip; duplicated rows and headers folded; previous: major, transitions measured frame by frame against PowerPoint for Windows' video export) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-27 · **Change:** minor (Animation Pane ▸ Play From plays from the selected effect; previous: community PR wave 2026-10-14: interactive-deck triggers, canvas preview, the Animation Pane timeline, repeat and bounce end round-trip; duplicated rows and headers folded; previous: major, transitions measured frame by frame against PowerPoint for Windows' video export) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Transitions and animations are what make a deck a presentation, and the part of PowerPoint people
 notice first when it's missing. Scores roll up into [target-app-parity.md](target-app-parity.md)
@@ -14,7 +14,10 @@ and Zoom and Rotate). All 48 round-trip through PPTX with the elements, attribut
 PowerPoint itself writes (`every_transition_kind_round_trips`,
 `transition_xml_matches_powerpoints_elements`, `transition_defaults_read_like_powerpoint`): 145 of
 145 PowerPoint-built test slides reopen in PowerPoint with the same effect after a DeckCraft
-save.
+save. Re-checked on 2026-10-27 with PowerPoint for Windows over COM: all 145 slides (every
+kind and option from `transition.list`) open with a non-zero `EntryEffect`, and PowerPoint's own
+re-save keeps the same transition element; the only differences (32 slides) are PowerPoint
+dropping attributes that are at their defaults (`dir="l"`, `orient="horz"`).
 
 **Measured against PowerPoint (2026-10-13).** Synthetic two-colour decks with asymmetric markers
 were built in PowerPoint for Windows over COM with every transition and option (150 variants,
