@@ -288,6 +288,8 @@ pub fn transition_to_xml(w: &mut W, kind: &str, option: &str) -> Option<&'static
 const SUBTYPES: &[(&str, &[(&str, u32)])] = &[
     ("fly", DIR8),
     ("flyOut", DIR8),
+    ("crawl", DIR4),
+    ("crawlOut", DIR4),
     ("peek", DIR4),
     ("wipe", DIR4),
     ("wipeOut", DIR4),
@@ -296,6 +298,10 @@ const SUBTYPES: &[(&str, &[(&str, u32)])] = &[
     ("splitOut", SPLIT),
     ("zoom", INOUT),
     ("zoomOut", INOUT),
+    ("basicZoom", INOUT),
+    ("basicZoomOut", INOUT),
+    ("plus", INOUT),
+    ("plusOut", INOUT),
     ("box", INOUT),
     ("circle", INOUT),
     ("diamond", INOUT),
@@ -304,6 +310,11 @@ const SUBTYPES: &[(&str, &[(&str, u32)])] = &[
     ("blinds", HV),
     ("swivel", HV),
     ("swivelOut", HV),
+    ("swivelBasic", HV),
+    ("swivelBasicOut", HV),
+    ("stretch", HV),
+    ("stretchOut", HV),
+    ("changeFontSize", &[("increase", 2), ("decrease", 1)]),
     ("blindsOut", HV),
     ("boxOut", INOUT),
     ("checkerboardOut", &[("across", 10), ("down", 5)]),
@@ -404,6 +415,27 @@ mod tests {
             let e = effect_for_preset(AnimClass::Exit, preset).expect("known exit");
             assert_eq!((e, option_from_subtype(e, sub).as_str()), (effect, option), "preset {preset}");
         }
+    }
+
+    #[test]
+    fn captured_animation_preset_ids_and_subtypes_map_to_their_effects() {
+        for (class, preset, effect) in [
+            (AnimClass::Entrance, 7, "crawl"),
+            (AnimClass::Entrance, 23, "basicZoom"),
+            (AnimClass::Entrance, 36, "shimmer"),
+            (AnimClass::Emphasis, 4, "changeFontSize"),
+            (AnimClass::Emphasis, 24, "darken"),
+            (AnimClass::Emphasis, 25, "desaturate"),
+            (AnimClass::Emphasis, 23, "contrastingColor"),
+            (AnimClass::Exit, 19, "swivelBasicOut"),
+            (AnimClass::Exit, 58, "foldOut"),
+        ] {
+            assert_eq!(effect_for_preset(class, preset), Some(effect), "preset {class:?}/{preset}");
+        }
+        assert_eq!(subtype_from_option("crawl", "b"), Some(4));
+        assert_eq!(subtype_from_option("plus", "in"), Some(16));
+        assert_eq!(subtype_from_option("basicZoomOut", "out"), Some(32));
+        assert_eq!(subtype_from_option("changeFontSize", "increase"), Some(2));
     }
 
     #[test]

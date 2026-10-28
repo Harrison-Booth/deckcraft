@@ -1,6 +1,6 @@
 # Transitions and animations: parity with PowerPoint
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-22 · **Change:** minor (Animation Pane ▸ Play From plays from the selected effect; previous: community PR wave 2026-10-14: interactive-deck triggers, canvas preview, the Animation Pane timeline, repeat and bounce end round-trip; duplicated rows and headers folded; previous: major, transitions measured frame by frame against PowerPoint for Windows' video export) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Last reviewed:** 2026-10-28 · **Last updated:** 2026-10-28 · **Change:** minor (66 entrance, emphasis and exit presets captured from PowerPoint; previous: Animation Pane ▸ Play From plays from the selected effect; previous: community PR wave 2026-10-14: interactive-deck triggers, canvas preview, the Animation Pane timeline, repeat and bounce end round-trip; duplicated rows and headers folded; previous: major, transitions measured frame by frame against PowerPoint for Windows' video export) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 Transitions and animations are what make a deck a presentation, and the part of PowerPoint people
 notice first when it's missing. Scores roll up into [target-app-parity.md](target-app-parity.md)
@@ -47,13 +47,13 @@ perspective-correct subdivided meshes.
 | Morph: `!!` name forcing, pictures, 3-D models, ink | yes | names partly; no 3-D or ink |
 | Frame-by-frame comparison with PowerPoint | | done (Windows, 2026-10-13); headless frames: `deckcraft-cli render-transition` |
 
-## Animations: 64 of ~190 effects
+## Animations: 173 of ~190 effects
 
 | Class | PowerPoint (gallery + More Effects) | DeckCraft | Missing (examples) |
 |---|---:|---:|---|
-| Entrance | ~50 | 24 | Plus, Wedge, Basic Zoom, Center Revolve, Compress, Stretch, Boomerang, Credits, Curve Up, Drop, Flip, Float, Pinwheel, Spiral In, Whip, Ascend, Descend, Unfold |
-| Emphasis | ~25 | 17 | Brush Color, Bold Reveal, Contrasting Color, Flicker, Grow With Color, Shimmer, Blink |
-| Exit | ~50 | 14 | Mirrors of the missing entrance effects, plus Blinds, Box, Checkerboard, Circle, Diamond, Peek Out, Strips as exits |
+| Entrance | ~50 | 53 | Compress, Curve Up, Drop, and remaining direction variants |
+| Emphasis | ~25 | 26 | Change Font, Change Font Style, Bold Reveal, Flicker, Shimmer, Blink |
+| Exit | ~50 | 51 | Mirrors of the remaining entrance effects and direction variants |
 | Motion paths | 64 presets + custom | 40 + Custom Path (Lines, Arcs, Turns, Loops, Basic shapes such as stars, heart, moon, teardrop; Lines & Curves such as zigzag, waves, S curves, spirals, bounces; Special such as figure 8, bean, peanut, neutron) | Remaining ~24 presets (some Basic shapes, Lines & Curves variants) |
 | Media (Play, Pause, Stop) | 3 (+ Seek) | 3 | Seek, bookmarks as triggers |
 
@@ -83,7 +83,7 @@ In, Wipe, Zoom, Float In, Grow/Shrink, Pulse, Spin, motion lines): weighted, ~85
 | Work | Hours |
 |---|---|
 | Effect dialog depth | 3–5 |
-| The remaining ~126 effects (most are parameter variations of existing ones) | 3–6 |
+| The remaining ~17 effects (most are parameter variations of existing ones) | 3–6 |
 | Rewind and other effect options on round trip (#77) | 1–2 |
 | Transition sounds: the rest of PowerPoint's built-in list (Applause, Arrow, Bomb…) | 1 |
 | Morph across pictures, `!!` names, align once per transition (#67) | 2–4 |
@@ -94,6 +94,7 @@ In, Wipe, Zoom, Float In, Grow/Shrink, Pulse, Spin, motion lines): weighted, ~85
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-28 | minor | PowerPoint COM captures every MsoAnimEffect; DeckCraft adds 66 measured entrance, emphasis and exit presets with default durations and tested PPTX IDs |
 | 2026-10-22 | minor | Animation Pane ▸ Play From: with an effect selected, the preview starts at that effect on the play-all clock; the row says yes and the estimate drops to ~14–26 h |
 | 2026-10-15 | trivial | PPTX interactive sequences preserve later On Click effects and one click per paragraph; no change to playback or feature scores |
 | 2026-10-16 | trivial | PPTX paragraph builds edited in PowerPoint keep their clicks; sub-points save With Previous of their parent (#844) |
