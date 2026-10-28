@@ -446,7 +446,7 @@ fn selection_context(st: &deckcraft_engine::DocState) -> Option<deckcraft_model:
 }
 
 /// The selected run's effective props, or the first run for a shape-level selection.
-fn first_run_props(app: &SlideApp, sh: &deckcraft_model::Shape) -> Option<deckcraft_model::text::RunProps> {
+pub(crate) fn first_run_props(app: &SlideApp, sh: &deckcraft_model::Shape) -> Option<deckcraft_model::text::RunProps> {
     let st = app.session.active()?;
     let ctx = selection_context(st)?;
     let shape = if let Some(t) = st.selection.text.as_ref() { st.shape(t.shape)? } else { sh };

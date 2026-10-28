@@ -35,6 +35,45 @@ fn update_outline(
     run.outline = Some(line);
 }
 
+type OutlineTarget = (deckcraft_model::ShapeId, Option<(usize, usize)>, usize, Option<usize>);
+
+fn remember_body_outlines(
+    out: &mut std::collections::HashMap<OutlineTarget, Option<Line>>,
+    ctx: Option<&deckcraft_model::resolve::Ctx<'_>>,
+    shape: &deckcraft_model::Shape,
+    cell: Option<(usize, usize)>,
+    body: &deckcraft_model::text::TextBody,
+) {
+    for (pi, para) in body.paragraphs.iter().enumerate() {
+        for (ri, run) in para.runs.iter().enumerate() {
+            let props = ctx.map_or(run.props.clone(), |ctx| deckcraft_model::resolve::run(ctx, shape, para, &run.props));
+            out.insert((shape.id, cell, pi, Some(ri)), props.outline);
+        }
+        let props = ctx.map_or(para.end_props.clone(), |ctx| deckcraft_model::resolve::run(ctx, shape, para, &para.end_props));
+        out.insert((shape.id, cell, pi, None), props.outline);
+    }
+}
+
+fn apply_body_outline(
+    body: &mut deckcraft_model::text::TextBody,
+    out: &std::collections::HashMap<OutlineTarget, Option<Line>>,
+    shape: deckcraft_model::ShapeId,
+    cell: Option<(usize, usize)>,
+    c: Option<&ColorRef>,
+    width: Option<f64>,
+    dash: Option<&Option<deckcraft_model::style::Dash>>,
+    remove: bool,
+) {
+    for (pi, para) in body.paragraphs.iter_mut().enumerate() {
+        for (ri, run) in para.runs.iter_mut().enumerate() {
+            let inherited = out.get(&(shape, cell, pi, Some(ri))).and_then(Option::as_ref);
+            update_outline(&mut run.props, inherited, c, width, dash, remove);
+        }
+        let inherited = out.get(&(shape, cell, pi, None)).and_then(Option::as_ref);
+        update_outline(&mut para.end_props, inherited, c, width, dash, remove);
+    }
+}
+
 fn text_outline_shapes(
     s: &mut Session,
     c: Option<ColorRef>,
@@ -49,31 +88,45 @@ fn text_outline_shapes(
     let ids = st.selection.shapes.clone();
     let cells = st.selection.cells;
     let ctx = crate::cmd::text::ctx_for(&st.doc, &st.selection);
-    let inherited: HashMap<_, _> = st
-        .selected_shapes()
-        .into_iter()
-        .map(|sh| {
-            let para = sh.text.as_ref().and_then(|t| t.paragraphs.first()).cloned().unwrap_or_default();
-            let run = para.runs.first().map(|r| r.props.clone()).unwrap_or_default();
-            let effective = ctx.as_ref().map_or(run.clone(), |ctx| deckcraft_model::resolve::run(ctx, sh, &para, &run));
-            (sh.id, effective.outline)
-        })
-        .collect();
-    edit_shapes(s, &json!({"ids": ids}), "format.textOutline", |sh| {
-        let inherited = inherited.get(&sh.id).and_then(Option::as_ref);
-        let apply = |run: &mut deckcraft_model::text::RunProps| update_outline(run, inherited, c.as_ref(), width, dash.as_ref(), remove);
+    let mut inherited = HashMap::new();
+    for sh in st.selected_shapes() {
+        match &sh.kind {
+            ShapeKind::Table(table) => {
+                for (ri, row) in table.rows.iter().enumerate() {
+                    for (ci, cell) in row.cells.iter().enumerate() {
+                        remember_body_outlines(&mut inherited, ctx.as_ref(), sh, Some((ri, ci)), &cell.text);
+                    }
+                }
+            }
+            _ => {
+                if let Some(body) = &sh.text {
+                    remember_body_outlines(&mut inherited, ctx.as_ref(), sh, None, body);
+                }
+            }
+        }
+    }
+    edit_shapes(s, &json!({"ids": ids.clone()}), "format.textOutline", |sh| {
         match &mut sh.kind {
             ShapeKind::Table(table) => {
                 let range = crate::cmd::table::selected_range(cells, sh.id, table);
                 for (row_index, row) in table.rows.iter_mut().enumerate() {
                     for (column_index, cell) in row.cells.iter_mut().enumerate() {
                         if crate::cmd::table::in_range(range, row_index, column_index) {
-                            ed::format_all(&mut cell.text, &apply);
+                            apply_body_outline(
+                                &mut cell.text,
+                                &inherited,
+                                sh.id,
+                                Some((row_index, column_index)),
+                                c.as_ref(),
+                                width,
+                                dash.as_ref(),
+                                remove,
+                            );
                         }
                     }
                 }
             }
-            _ => ed::format_all(sh.text.get_or_insert_with(TextBody::default), &apply),
+            _ => apply_body_outline(sh.text.get_or_insert_with(TextBody::default), &inherited, sh.id, None, c.as_ref(), width, dash.as_ref(), remove),
         }
         Ok(())
     })?;

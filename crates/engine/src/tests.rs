@@ -5727,30 +5727,37 @@ fn text_outline_edits_resolve_each_selected_shape() {
     use deckcraft_model::text::LevelStyle;
     use deckcraft_model::{Fill, Line, Rgba, ShapeId};
     let mut s = session();
-    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [40, 40, 120, 80], "text": "A"})).unwrap()["id"].as_u64().unwrap() as u32;
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [40, 40, 120, 80], "text": "A\nA2"})).unwrap()["id"].as_u64().unwrap() as u32;
     let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [200, 40, 120, 80], "text": "B"})).unwrap()["id"].as_u64().unwrap() as u32;
     {
         let st = s.doc_mut().unwrap();
         let pres = std::sync::Arc::make_mut(&mut st.doc);
         let slide = std::sync::Arc::make_mut(pres.slides.get_mut(0).unwrap());
-        for (id, color) in [(a, Rgba::rgb(0xC0, 0, 0)), (b, Rgba::rgb(0, 0, 0xC0))] {
+        for (id, colors) in [(a, vec![Rgba::rgb(0xC0, 0, 0), Rgba::rgb(0, 0x80, 0)]), (b, vec![Rgba::rgb(0, 0, 0xC0)])] {
             let shape = deckcraft_model::find_shape_mut(&mut slide.shapes, ShapeId(id)).unwrap();
             let text = shape.text.as_mut().unwrap();
-            let mut level = LevelStyle::default();
-            level.run.outline = Some(Line::solid(deckcraft_model::ColorRef::rgb(color), 2.0));
-            text.list_style.set(0, level);
+            for (level, color) in colors.into_iter().enumerate() {
+                if let Some(paragraph) = text.paragraphs.get_mut(level) {
+                    paragraph.level = level as u8;
+                }
+                let mut style = LevelStyle::default();
+                style.run.outline = Some(Line::solid(deckcraft_model::ColorRef::rgb(color), 2.0));
+                text.list_style.set(level as u8, style);
+            }
         }
     }
     s.execute("edit.select", &json!({"ids": [a, b]})).unwrap();
     s.execute("format.textOutline", &json!({})).unwrap();
-    let outline =
-        |session: &Session, id| session.doc().unwrap().shape(ShapeId(id)).unwrap().text.as_ref().unwrap().paragraphs[0].runs[0].props.outline.clone();
-    assert_eq!(outline(&s, a), Some(Line::none()));
-    assert_eq!(outline(&s, b), Some(Line::none()));
+    let outline = |session: &Session, id: u32, paragraph: usize| {
+        session.doc().unwrap().shape(ShapeId(id)).unwrap().text.as_ref().unwrap().paragraphs[paragraph].runs[0].props.outline.clone()
+    };
+    assert_eq!(outline(&s, a, 0), Some(Line::none()));
+    assert_eq!(outline(&s, a, 1), Some(Line::none()));
+    assert_eq!(outline(&s, b, 0), Some(Line::none()));
     s.execute("edit.undo", &json!({})).unwrap();
     s.execute("format.textOutline", &json!({"width": 5.0})).unwrap();
-    for (id, color) in [(a, Rgba::rgb(0xC0, 0, 0)), (b, Rgba::rgb(0, 0, 0xC0))] {
-        let line = outline(&s, id).unwrap();
+    for (id, paragraph, color) in [(a, 0, Rgba::rgb(0xC0, 0, 0)), (a, 1, Rgba::rgb(0, 0x80, 0)), (b, 0, Rgba::rgb(0, 0, 0xC0))] {
+        let line = outline(&s, id, paragraph).unwrap();
         assert_eq!(line.width, Some(5.0));
         assert_eq!(line.fill, Some(Fill::solid(deckcraft_model::ColorRef::rgb(color))));
     }
