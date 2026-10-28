@@ -84,6 +84,7 @@ fn def_rpr(w: &mut W, color: Option<&deckcraft_model::ColorRef>, size: Option<f6
 
 /// A font size in points as `sz` (hundredths of a point).
 fn sz(pt: f64) -> i64 {
+    let pt = if pt.is_nan() { 1.0 } else { pt.clamp(1.0, 4000.0) };
     (pt * 100.0).round() as i64
 }
 
@@ -91,7 +92,11 @@ fn sz(pt: f64) -> i64 {
 /// the axes, the legend, the data labels and the chart itself, as PowerPoint writes it. Nothing
 /// without a colour or size: the theme's default then applies on reading.
 fn tx_pr(w: &mut W, c: &Chart) {
-    if c.text_color.is_none() && c.text_size.is_none() {
+    tx_pr_values(w, c.text_color.as_ref(), c.text_size, false);
+}
+
+fn tx_pr_values(w: &mut W, color: Option<&deckcraft_model::ColorRef>, size: Option<f64>, force: bool) {
+    if !force && color.is_none() && size.is_none() {
         return;
     }
     w.open0("c:txPr");
@@ -99,7 +104,7 @@ fn tx_pr(w: &mut W, c: &Chart) {
     w.empty0("a:lstStyle");
     w.open0("a:p");
     w.open0("a:pPr");
-    def_rpr(w, c.text_color.as_ref(), c.text_size);
+    def_rpr(w, color, size);
     w.close("a:pPr");
     w.empty("a:endParaRPr", A::new().a("lang", "en-US"));
     w.close("a:p");
@@ -135,9 +140,9 @@ fn rich(w: &mut W, text: &str, color: Option<&deckcraft_model::ColorRef>, size: 
 }
 
 /// A title (the chart's or an axis's) in the chart's text colour.
-fn title(w: &mut W, text: &str, c: &Chart) {
+fn title(w: &mut W, text: &str, c: &Chart, size: Option<f64>) {
     w.open0("c:title");
-    rich(w, text, c.text_color.as_ref(), c.title_size);
+    rich(w, text, c.text_color.as_ref(), size);
     w.val("c:overlay", 0);
     w.close("c:title");
 }
@@ -307,7 +312,7 @@ fn series(w: &mut W, c: &Chart, s: &Series, i: usize, kind: ChartType, g: Group)
     }
     point_fills(w, s, g);
     if let Some(d) = s.data_labels {
-        data_labels(w, c, d);
+        data_labels(w, c, d, matches!(g, Group::Pie | Group::Doughnut));
     }
     // After labels, before the category and value caches (ECMA-376 series content order).
     if matches!(g, Group::Bar | Group::Line | Group::Area | Group::Scatter) {
@@ -396,9 +401,14 @@ fn trendline(w: &mut W, t: &Trendline) {
     w.close("c:trendline");
 }
 
-fn data_labels(w: &mut W, c: &Chart, show: bool) {
+fn data_labels(w: &mut W, c: &Chart, show: bool, pie: bool) {
     w.open0("c:dLbls");
-    tx_pr(w, c);
+    if pie && c.text_color.is_none() {
+        let white = deckcraft_model::ColorRef::rgb(deckcraft_color::Rgba::WHITE);
+        tx_pr_values(w, Some(&white), c.text_size, true);
+    } else {
+        tx_pr(w, c);
+    }
     for (n, v) in [
         ("c:showLegendKey", false),
         ("c:showVal", show),
@@ -449,7 +459,7 @@ fn axes(w: &mut W, c: &Chart, g: Group) {
         w.val("c:delete", 0);
         w.val("c:axPos", "b");
         if let Some(t) = &c.axis_titles.0 {
-            title(w, t, c);
+            title(w, t, c, c.text_size);
         }
         w.empty("c:numFmt", A::new().a("formatCode", "General").a("sourceLinked", 1));
         w.val("c:majorTickMark", "out");
@@ -470,7 +480,7 @@ fn axes(w: &mut W, c: &Chart, g: Group) {
         w.val("c:delete", 0);
         w.val("c:axPos", cat_pos);
         if let Some(t) = &c.axis_titles.0 {
-            title(w, t, c);
+            title(w, t, c, c.text_size);
         }
         w.empty("c:numFmt", A::new().a("formatCode", "General").a("sourceLinked", 1));
         w.val("c:majorTickMark", "none");
@@ -509,7 +519,7 @@ fn axes(w: &mut W, c: &Chart, g: Group) {
         grid_lines(w, "c:minorGridlines", "F2F2F2");
     }
     if let Some(t) = &c.axis_titles.1 {
-        title(w, t, c);
+        title(w, t, c, c.text_size);
     }
     match c.y_format.as_deref().filter(|f| !f.is_empty()) {
         Some(f) => w.empty("c:numFmt", A::new().a("formatCode", f).a("sourceLinked", 0)),
@@ -568,7 +578,7 @@ fn plot_group(w: &mut W, c: &Chart, kind: ChartType, list: &[(usize, &Series)]) 
         series(w, c, s, *i, kind, g);
     }
     if c.data_labels {
-        data_labels(w, c, true);
+        data_labels(w, c, true, matches!(g, Group::Pie | Group::Doughnut));
     }
     match g {
         Group::Bar => {
@@ -676,7 +686,7 @@ pub fn chart_xml(c: &Chart) -> (Vec<u8>, bool) {
     w.open0("c:chart");
     match &c.title {
         Some(t) => {
-            title(&mut w, t, c);
+            title(&mut w, t, c, c.title_size);
             w.val("c:autoTitleDeleted", 0);
         }
         None => w.val("c:autoTitleDeleted", 1),
@@ -1123,6 +1133,37 @@ mod tests {
         c.text_color = None;
         let xml = String::from_utf8(super::chart_xml(&c).0).unwrap();
         assert!(!xml.contains("<c:txPr>"), "{xml}");
+        assert_eq!(crate::read::chart::read_chart_xml(xml.as_bytes()).unwrap().text_color, None);
+    }
+
+    #[test]
+    fn chart_title_sizes_are_bounded_and_axis_titles_use_text_size() {
+        let mut c = Chart::sample(ChartType::Column);
+        c.title = Some("Chart title".into());
+        c.axis_titles = (Some("X axis".into()), Some("Y axis".into()));
+        c.title_size = Some(24.0);
+        c.text_size = Some(11.0);
+        let xml = String::from_utf8(super::chart_xml(&c).0).unwrap();
+        let titles: Vec<_> = xml.split("<c:title>").skip(1).map(|s| s.split("</c:title>").next().unwrap_or_default()).collect();
+        assert!(titles.first().is_some_and(|t| t.contains("sz=\"2400\"")), "{xml}");
+        assert_eq!(titles.iter().filter(|t| t.contains("sz=\"1100\"")).count(), 2, "{xml}");
+
+        assert_eq!(super::sz(0.5), 100);
+        assert_eq!(super::sz(4000.1), 400000);
+        assert_eq!(super::sz(f64::NAN), 100);
+    }
+
+    #[test]
+    fn pie_data_label_default_white_does_not_become_chart_text_color() {
+        let mut c = Chart::sample(ChartType::Pie);
+        c.data_labels = true;
+        let xml = String::from_utf8(super::chart_xml(&c).0).unwrap();
+        assert!(
+            xml.contains(
+                "<c:dLbls><c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr><a:solidFill><a:srgbClr val=\"FFFFFF\"/></a:solidFill></a:defRPr>"
+            ),
+            "{xml}"
+        );
         assert_eq!(crate::read::chart::read_chart_xml(xml.as_bytes()).unwrap().text_color, None);
     }
 
