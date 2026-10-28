@@ -150,6 +150,7 @@ fn chart_within(root: &El, mut budget: usize) -> Option<Chart> {
     }
     // `autoTitleDeleted val="0"` without `c:title`: PowerPoint and LibreOffice draw the series name as the title of a single-series chart.
     if ch.child("title").is_none() && ch.child("autoTitleDeleted").and_then(|a| a.bool("val")) == Some(false) && c.series.len() == 1 {
+        c.auto_title = true;
         c.title = c.series.first().map(|s| s.name.clone()).filter(|n| !n.is_empty());
     }
     let first = *kinds.first()?;
@@ -801,7 +802,9 @@ mod tests {
 
     #[test]
     fn single_series_gets_automatic_title() {
-        assert_eq!(chart(r#"<c:autoTitleDeleted val="0"/>"#, "", 1).title.as_deref(), Some("S0"));
+        let c = chart(r#"<c:autoTitleDeleted val="0"/>"#, "", 1);
+        assert_eq!(c.title.as_deref(), Some("S0"));
+        assert!(c.auto_title);
     }
 
     #[test]
@@ -814,7 +817,9 @@ mod tests {
     #[test]
     fn explicit_title_wins() {
         let t = "<c:title><c:tx><c:rich><a:p><a:r><a:t>Mine</a:t></a:r></a:p></c:rich></c:tx></c:title>";
-        assert_eq!(chart(r#"<c:autoTitleDeleted val="0"/>"#, t, 1).title.as_deref(), Some("Mine"));
+        let c = chart(r#"<c:autoTitleDeleted val="0"/>"#, t, 1);
+        assert_eq!(c.title.as_deref(), Some("Mine"));
+        assert!(!c.auto_title);
     }
 
     const NS_CHART: &str = "http://schemas.openxmlformats.org/drawingml/2006/chart";

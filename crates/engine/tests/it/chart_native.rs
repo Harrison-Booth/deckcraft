@@ -127,3 +127,28 @@ fn editing_chart_after_native_reopen_does_not_export_a_stale_workbook() {
     assert_eq!(chart(&back).series[0].values[0], Some(99.0));
     assert!(chart(&back).kept.parts.is_empty(), "stale source workbook must not be attached to edited chart data");
 }
+
+#[test]
+fn chart_data_renames_automatic_title_but_keeps_explicit_title() {
+    for (auto_title, expected_title) in [(true, "Renamed"), (false, "My title")] {
+        let mut s = open(&source(), "chart.pptx");
+        let id = {
+            let doc = s.doc_mut().expect("doc");
+            let p = Arc::make_mut(&mut doc.doc);
+            let ShapeKind::Chart(c) = &mut Arc::make_mut(&mut p.slides[0]).shapes[0].kind else { panic!("chart") };
+            c.series.truncate(1);
+            c.series[0].name = "Original".into();
+            c.title = Some(if auto_title { "Original" } else { "My title" }.into());
+            c.auto_title = auto_title;
+            c.raw = None;
+            p.slides[0].shapes[0].id
+        };
+        s.execute("selection.select", &json!({"id":id})).expect("select chart");
+        s.execute("chart.data", &json!({"series":[{"name":"Renamed","values":[3,4]}]})).expect("rename series");
+        assert_eq!(chart(&s.doc().expect("doc").doc).title.as_deref(), Some(expected_title));
+        assert_eq!(chart(&s.doc().expect("doc").doc).auto_title, auto_title);
+        let back = deckcraft_pptx::import(&save(&mut s, "pptx")).expect("reopen PPTX");
+        assert_eq!(chart(&back).title.as_deref(), Some(expected_title));
+        assert_eq!(chart(&back).auto_title, auto_title);
+    }
+}
