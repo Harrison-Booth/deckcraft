@@ -5721,3 +5721,37 @@ fn text_fill_outline_and_upright_commands() {
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(body(&s).upright, Some(true));
 }
+
+#[test]
+fn text_outline_edits_resolve_each_selected_shape() {
+    use deckcraft_model::text::LevelStyle;
+    use deckcraft_model::{Fill, Line, Rgba, ShapeId};
+    let mut s = session();
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [40, 40, 120, 80], "text": "A"})).unwrap()["id"].as_u64().unwrap() as u32;
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [200, 40, 120, 80], "text": "B"})).unwrap()["id"].as_u64().unwrap() as u32;
+    {
+        let st = s.doc_mut().unwrap();
+        let pres = std::sync::Arc::make_mut(&mut st.doc);
+        let slide = std::sync::Arc::make_mut(pres.slides.get_mut(0).unwrap());
+        for (id, color) in [(a, Rgba::rgb(0xC0, 0, 0)), (b, Rgba::rgb(0, 0, 0xC0))] {
+            let shape = deckcraft_model::find_shape_mut(&mut slide.shapes, ShapeId(id)).unwrap();
+            let text = shape.text.as_mut().unwrap();
+            let mut level = LevelStyle::default();
+            level.run.outline = Some(Line::solid(deckcraft_model::ColorRef::rgb(color), 2.0));
+            text.list_style.set(0, level);
+        }
+    }
+    s.execute("edit.select", &json!({"ids": [a, b]})).unwrap();
+    s.execute("format.textOutline", &json!({})).unwrap();
+    let outline =
+        |session: &Session, id| session.doc().unwrap().shape(ShapeId(id)).unwrap().text.as_ref().unwrap().paragraphs[0].runs[0].props.outline.clone();
+    assert_eq!(outline(&s, a), Some(Line::none()));
+    assert_eq!(outline(&s, b), Some(Line::none()));
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.execute("format.textOutline", &json!({"width": 5.0})).unwrap();
+    for (id, color) in [(a, Rgba::rgb(0xC0, 0, 0)), (b, Rgba::rgb(0, 0, 0xC0))] {
+        let line = outline(&s, id).unwrap();
+        assert_eq!(line.width, Some(5.0));
+        assert_eq!(line.fill, Some(Fill::solid(deckcraft_model::ColorRef::rgb(color))));
+    }
+}

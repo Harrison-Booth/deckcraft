@@ -3,6 +3,86 @@ use super::{
 };
 use deckcraft_model::{ColorRef, style::Fill};
 
+fn update_outline(
+    run: &mut deckcraft_model::text::RunProps,
+    inherited: Option<&deckcraft_model::Line>,
+    c: Option<&ColorRef>,
+    width: Option<f64>,
+    dash: Option<&Option<deckcraft_model::style::Dash>>,
+    remove: bool,
+) {
+    if remove {
+        run.outline = inherited.is_some().then(deckcraft_model::Line::none);
+        return;
+    }
+    let mut line = run
+        .outline
+        .take()
+        .or_else(|| inherited.cloned())
+        .unwrap_or_else(|| deckcraft_model::Line::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK), 0.75));
+    line.width.get_or_insert(0.75);
+    if let Some(color) = c {
+        line.fill = Some(Fill::solid(color.clone()));
+    } else if matches!(line.fill, None | Some(Fill::None)) {
+        line.fill = Some(Fill::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK)));
+    }
+    if let Some(width) = width {
+        line.width = Some(width);
+    }
+    if let Some(dash) = dash {
+        line.dash.clone_from(dash);
+    }
+    run.outline = Some(line);
+}
+
+fn text_outline_shapes(
+    s: &mut Session,
+    c: Option<ColorRef>,
+    width: Option<f64>,
+    dash: Option<Option<deckcraft_model::style::Dash>>,
+    remove: bool,
+) -> Result<Value> {
+    use deckcraft_model::{ShapeKind, TextBody};
+    use std::collections::HashMap;
+
+    let st = s.doc()?;
+    let ids = st.selection.shapes.clone();
+    let cells = st.selection.cells;
+    let ctx = crate::cmd::text::ctx_for(&st.doc, &st.selection);
+    let inherited: HashMap<_, _> = st
+        .selected_shapes()
+        .into_iter()
+        .map(|sh| {
+            let para = sh.text.as_ref().and_then(|t| t.paragraphs.first()).cloned().unwrap_or_default();
+            let run = para.runs.first().map(|r| r.props.clone()).unwrap_or_default();
+            let effective = ctx.as_ref().map_or(run.clone(), |ctx| deckcraft_model::resolve::run(ctx, sh, &para, &run));
+            (sh.id, effective.outline)
+        })
+        .collect();
+    edit_shapes(s, &json!({"ids": ids}), "format.textOutline", |sh| {
+        let inherited = inherited.get(&sh.id).and_then(Option::as_ref);
+        let apply = |run: &mut deckcraft_model::text::RunProps| update_outline(run, inherited, c.as_ref(), width, dash.as_ref(), remove);
+        match &mut sh.kind {
+            ShapeKind::Table(table) => {
+                let range = crate::cmd::table::selected_range(cells, sh.id, table);
+                for (row_index, row) in table.rows.iter_mut().enumerate() {
+                    for (column_index, cell) in row.cells.iter_mut().enumerate() {
+                        if crate::cmd::table::in_range(range, row_index, column_index) {
+                            ed::format_all(&mut cell.text, &apply);
+                        }
+                    }
+                }
+            }
+            _ => ed::format_all(sh.text.get_or_insert_with(TextBody::default), &apply),
+        }
+        Ok(())
+    })?;
+    for id in ids {
+        crate::cmd::text::fit_text_box(s, id)?;
+    }
+    ok()
+}
+
 pub(super) fn text_shadow(s: &mut Session, p: &Value) -> Result<Value> {
     let v = on_param(p, Some(current_run(s).shadow.is_some()));
     let sh = deckcraft_model::style::Shadow {
@@ -49,25 +129,18 @@ pub(super) fn text_outline(s: &mut Session, p: &Value) -> Result<Value> {
     };
     if bool_or(p, "none", false) || (c.is_none() && w.is_none() && dash.is_none()) {
         // An outline the text only inherits is switched off with an explicit no-line of its own.
+        if s.doc()?.selection.text.is_none() {
+            return text_outline_shapes(s, c, w, dash, true);
+        }
         let inherited = current_run(s).outline.is_some();
         return format_run(s, &move |r| r.outline = inherited.then(Line::none));
     }
+    if s.doc()?.selection.text.is_none() {
+        return text_outline_shapes(s, c, w, dash, false);
+    }
     let inherited = current_run(s).outline;
     format_run(s, &move |r| {
-        let mut l = r.outline.take().or_else(|| inherited.clone()).unwrap_or_else(|| Line::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK), 0.75));
-        l.width.get_or_insert(0.75);
-        if let Some(c) = &c {
-            l.fill = Some(Fill::solid(c.clone()));
-        } else if matches!(l.fill, None | Some(Fill::None)) {
-            l.fill = Some(Fill::solid(ColorRef::rgb(deckcraft_color::Rgba::BLACK)));
-        }
-        if let Some(w) = w {
-            l.width = Some(w);
-        }
-        if let Some(d) = &dash {
-            l.dash.clone_from(d);
-        }
-        r.outline = Some(l);
+        update_outline(r, inherited.as_ref(), c.as_ref(), w, dash.as_ref(), false);
     })
 }
 
