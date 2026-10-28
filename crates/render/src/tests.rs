@@ -2977,3 +2977,13 @@ fn dashed_text_outline_leaves_gaps() {
     assert!(dashed < solid * 3 / 4, "dashes leave gaps: {dashed} of {solid}");
     assert!(dashed > 100, "and still draw: {dashed}");
 }
+
+#[test]
+fn tiny_custom_text_outline_dash_is_bounded() {
+    use kurbo::ParamCurveArclen;
+    let path = kurbo::BezPath::from_vec(vec![kurbo::PathEl::MoveTo(Point::ZERO), kurbo::PathEl::LineTo(Point::new(100.0, 0.0))]);
+    let stroke = crate::text_draw::outline_stroke(&path, 1.0, &[1e-12, 1e-12]);
+    let length: f64 = path.segments().map(|segment| segment.arclen(1e-2)).sum();
+    let period: f64 = stroke.dash_pattern.iter().sum();
+    assert!(length / period <= crate::stroke::MAX_DASHES + 1.0);
+}

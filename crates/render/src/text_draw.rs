@@ -72,9 +72,10 @@ pub(crate) fn preview_empty_bullets(l: &mut deckcraft_text::TextLayout) {
 
 /// The stroke of a text outline `width` wide (in the units of the path it is drawn on) with the
 /// dash pattern `dash` (multiples of the width; empty = solid).
-pub(crate) fn outline_stroke(width: f64, dash: &[f64]) -> kurbo::Stroke {
+pub(crate) fn outline_stroke(path: &BezPath, width: f64, dash: &[f64]) -> kurbo::Stroke {
     let mut sk = kurbo::Stroke::new(width.max(0.0)).with_join(kurbo::Join::Round);
     let pat: Vec<f64> = dash.iter().map(|v| v * width).collect();
+    let pat = crate::stroke::limit_dash_count(path, pat);
     if !pat.is_empty() && pat.iter().all(|v| v.is_finite() && *v > 0.0) {
         sk = sk.with_dashes(0.0, pat);
     }
@@ -325,7 +326,7 @@ fn draw_glyph_with(
     }
     if let Some((oc, ow)) = run.outline {
         ctx.set_paint(color(oc, opacity));
-        ctx.set_stroke(outline_stroke(ow / k.max(1e-9), &run.outline_dash));
+        ctx.set_stroke(outline_stroke(&path, ow / k.max(1e-9), &run.outline_dash));
         ctx.stroke_path(&path);
     }
 }

@@ -415,7 +415,7 @@ fn text_choice(app: &mut SlideApp, ui: &mut Ui, label: &str, cmd: &str, key: &st
     ui.horizontal(|ui| {
         let field = ui.add_sized(vec2(90.0, 20.0), egui::Label::new(label));
         let shown = items.iter().find(|(_, v)| *v == current).map_or(current, |(l, _)| *l);
-        let combo = egui::ComboBox::from_id_salt(("fmt-text", cmd, key)).selected_text(shown).width(150.0).show_ui(ui, |ui| {
+        let combo = craft_ui::ComboBox::from_id_salt(("fmt-text", cmd, key)).selected_text(shown).width(150.0).show_ui(ui, |ui| {
             for (l, v) in items {
                 if ui.selectable_label(*v == current, *l).clicked() {
                     run(app, cmd, json!({key: v}));
