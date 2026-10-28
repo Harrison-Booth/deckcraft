@@ -163,6 +163,9 @@ deckcraft-cli mcp --connect 7990        # drive the running app (deckcraft --con
 deckcraft-cli mcp --automation-read-root DIR --automation-write-root DIR   # confine the headless agent to folders
 ```
 
+Contributors with PowerPoint on Windows can optionally check a behaviour against it; see
+[`docs/powerpoint-check.md`](docs/powerpoint-check.md) (nothing PowerPoint produces is ever committed).
+
 ## Roadmap
 
 DeckCraft is in **alpha**. It covers **84% of the features tracked in [`docs/target-app-parity.md`](docs/target-app-parity.md) by breadth** (92% of the core
