@@ -330,7 +330,7 @@ fn paste(s: &mut Session, p: &Value) -> Result<Value> {
                     && !n.is_empty()
                     && n.bytes().all(|b| b.is_ascii_digit())
                 {
-                    sh.name = super::insert::first_free_name(base, &taken);
+                    sh.name = super::insert::first_free_name(base, &taken, taken.len());
                 }
                 taken.insert(sh.name.clone());
                 if let Some(x) = sh.xfrm.as_mut() {
@@ -508,6 +508,19 @@ fn paste_text(s: &mut Session, p: &Value) -> Result<Value> {
     paste_plain(s, &t)
 }
 
+/// Duplicate gives a copy the next automatic name ("Rectangle 4" after "Rectangle 1"), as
+/// PowerPoint does, and keeps a name the user chose. PowerPoint tells the two apart by comparing
+/// the number with the shape's id; ids here are numbered across the deck, so any "{kind} {n}"
+/// counts as automatic.
+fn rename_automatic(sh: &mut Shape, taken: &mut std::collections::HashSet<String>, count: usize) {
+    let base = if sh.is_group() { "Group".to_string() } else { super::insert::auto_name_base(sh) };
+    let n = sh.name.strip_prefix(&base).and_then(|r| r.strip_prefix(' '));
+    if n.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+        sh.name = super::insert::first_free_name(&base, taken, count);
+        taken.insert(sh.name.clone());
+    }
+}
+
 fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
     let ids = targets(s, p)?;
     let off = s.prefs.duplicate_offset;
@@ -532,6 +545,17 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
             })
             .unwrap_or((off, off));
         reid("edit.duplicate", doc, &mut copies)?;
+        // Every name on the slide, group members included, so a copy never repeats one.
+        let mut taken = std::collections::HashSet::new();
+        let mut count = 0;
+        deckcraft_model::walk(&list, &mut |sh, _| {
+            taken.insert(sh.name.clone());
+            count += 1;
+        });
+        walk_mut(&mut copies, &mut |c| {
+            rename_automatic(c, &mut taken, count);
+            count += 1;
+        });
         for (c, b) in copies.iter_mut().zip(boxes) {
             let mut x = b;
             x.x += dx;
@@ -539,9 +563,6 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
             c.xfrm = Some(x);
             if sel.target == crate::Target::Slides {
                 c.ph = None;
-            }
-            if !c.name.is_empty() {
-                c.name = format!("{} copy", c.name.trim_end_matches(" copy"));
             }
         }
         let new_ids: Vec<ShapeId> = copies.iter().map(|c| c.id).collect();
