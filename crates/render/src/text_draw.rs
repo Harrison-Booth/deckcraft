@@ -252,7 +252,7 @@ fn text_effect(ctx: &mut dyn Canvas, run: &deckcraft_text::GlyphRun, which: Text
     let skew = if run.fake_italic { Affine::new([1.0, 0.0, -0.2, 1.0, 0.0, 0.0]) } else { Affine::IDENTITY };
     let mut area: Option<Rect> = None;
     for (gid, x, y) in &run.glyphs {
-        let b = (m * Affine::translate((*x, *y)) * skew * Affine::scale(k)).transform_rect_bbox(glyph(&run.face, *gid).bounding_box());
+        let b = (m * glyph_place(run, *gid, *x, *y) * skew * Affine::scale(k)).transform_rect_bbox(glyph(&run.face, *gid).bounding_box());
         if b.is_finite() {
             area = Some(area.map_or(b, |a| a.union(b)));
         }
