@@ -111,9 +111,9 @@ impl Tokens {
             caret: Color32::BLACK,
             text_selection: Color32::from_rgba_unmultiplied(0x5A, 0x8F, 0xE0, 90),
             field_bg: Color32::from_rgb(0x2A, 0x2A, 0x2A),
-            control: Color32::from_rgb(0x2A, 0x2A, 0x2A),
-            control_hover: Color32::from_rgb(0x40, 0x40, 0x40),
-            control_pressed: Color32::from_rgb(0x4C, 0x4C, 0x4C),
+            control: Color32::from_rgb(0x58, 0x58, 0x58),
+            control_hover: Color32::from_rgb(0x66, 0x66, 0x66),
+            control_pressed: Color32::from_rgb(0x74, 0x74, 0x74),
             shadow: Color32::from_black_alpha(90),
         }
     }
@@ -472,6 +472,21 @@ mod tests {
         // Hovering and pressing darken the control a step each, as they do buttons.
         let (hovered, active) = (v.widgets.hovered.bg_fill, v.widgets.active.bg_fill);
         assert!(fill.r() > hovered.r() && hovered.r() > active.r(), "idle {fill:?}, hovered {hovered:?}, active {active:?} don't darken in turn");
+    }
+
+    #[test]
+    fn dark_checkboxes_and_slider_rails_stand_out_from_their_background() {
+        // The dark fill was 0x2A on a 0x33 dialog, so Preferences' checkboxes and slider rail
+        // were barely there (#1349). Hover and press lighten a step each.
+        let ctx = egui::Context::default();
+        super::apply(&ctx, &super::Tokens::dark());
+        let v = ctx.global_style().visuals.clone();
+        let fill = v.widgets.inactive.bg_fill;
+        for (name, bg) in [("dialog", v.window_fill), ("panel", v.panel_fill)] {
+            assert!(fill.r().abs_diff(bg.r()) >= 24, "control fill {fill:?} is too close to the {name} background {bg:?}");
+        }
+        let (hovered, active) = (v.widgets.hovered.bg_fill, v.widgets.active.bg_fill);
+        assert!(fill.r() < hovered.r() && hovered.r() < active.r(), "idle {fill:?}, hovered {hovered:?}, active {active:?} don't lighten in turn");
     }
 
     #[test]
