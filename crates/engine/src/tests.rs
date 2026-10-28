@@ -4421,6 +4421,16 @@ fn autoformat_starts_bulleted_and_numbered_lists_as_you_type() {
     assert_eq!(s.execute("text.autocorrect", &json!({})).unwrap()["lists"], true);
     s.execute("text.autocorrect", &json!({"lists": false})).unwrap();
     assert_eq!(typed(&mut s, "* x"), ("* x".to_string(), none));
+    // List AutoFormat is independent of the Replace text as you type setting.
+    s.execute("text.autocorrect", &json!({"on": false, "lists": true})).unwrap();
+    assert_eq!(typed(&mut s, "*"), ("*".to_string(), Some(Bullet::None)));
+    s.execute("text.insert", &json!({"text": " "})).unwrap();
+    assert_eq!(para(&s), (String::new(), ch("•")));
+    s.execute("text.delete", &json!({"dir": "backward"})).unwrap();
+    assert_eq!(para(&s), ("* ".to_string(), Some(Bullet::None)));
+    // Word replacements still run while list formatting is disabled.
+    s.execute("text.autocorrect", &json!({"on": true, "lists": false})).unwrap();
+    assert_eq!(typed(&mut s, "teh "), ("The ".to_string(), Some(Bullet::None)));
 }
 
 #[test]
