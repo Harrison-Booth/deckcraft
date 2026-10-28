@@ -624,7 +624,7 @@ fn mcp(args: &[String]) -> Result<(), String> {
             other => return Err(format!("unknown mcp option `{other}`")),
         }
     }
-    let roots = AutomationRoots::new(roots_args.read_root.as_deref(), roots_args.write_root.as_deref())?;
+    let roots = AutomationRoots::new(&roots_args.read_roots, &roots_args.write_roots)?;
     if roots.is_some() && connect.is_some() {
         return Err("--automation-read-root and --automation-write-root confine the in-process server; a running app is not confined by them, \
 so drop --connect (or use --connect without the roots)"
@@ -641,8 +641,12 @@ so drop --connect (or use --connect without the roots)"
             if let Some(roots) = roots {
                 // Every thread of this process, not only the server's: nothing reaches past the roots.
                 file_access::confine_process(roots.clone());
-                let show = |root: Option<&std::path::Path>| root.map_or_else(|| "none".to_string(), |r| r.display().to_string());
-                eprintln!("deckcraft-cli: files confined: read root {}, write root {}", show(roots.read_root()), show(roots.write_root()));
+                let show = |roots: Vec<String>| if roots.is_empty() { "none".to_string() } else { roots.join(", ") };
+                eprintln!(
+                    "deckcraft-cli: files confined: read roots {}, write roots {}",
+                    show(roots.read_roots().map(|r| r.display().to_string()).collect()),
+                    show(roots.write_roots().map(|r| r.display().to_string()).collect())
+                );
                 h = h.with_automation_roots(Some(roots));
             }
             Box::new(h)
