@@ -185,7 +185,8 @@ Detail in [file-format-parity.md](file-format-parity.md).
   neither label. A combo chart's secondary value axis is read (`y2_*`,
   `Series.secondary_axis`) and is not written back when the chart is rebuilt.
   Imported one-series automatic titles remain linked to the series name after `chart.data` edits;
-  explicit titles remain unchanged. PowerPoint COM and synthetic round-trip regressions cover both.
+  automatic state survives temporary multi-series edits and is recovered from older native files,
+  while explicit titles remain unchanged. PowerPoint COM and Linux/Windows regressions cover these paths.
   An unchanged chart's embedded workbook now survives save (#335); editing the chart still
   drops it rather than writing a stale spreadsheet. The workbook and other retained chart parts
   also survive `.deckcraft` save/reopen (`crates/engine/tests/it/chart_native.rs`), with binary
@@ -374,7 +375,7 @@ Detail in [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-28 | minor | One-series automatic chart titles remain linked to the series name after data edits; PowerPoint COM confirmed linked titles follow series renames while explicit titles stay fixed. Broader chart data and element gaps remain |
+| 2026-10-28 | minor | One-series automatic chart titles remain linked after data edits; temporary multi-series edits preserve automatic state, and older native files recover it from retained XML. PowerPoint COM confirmed linked titles follow series renames while explicit titles stay fixed. Broader chart data and element gaps remain |
 | 2026-10-25 | trivial | New entries: copying text and cell ranges (no media, no table), a control-server timing test that may fail under load; Proofing notes that automatic lists follow Replace text as you type and that Backspace puts the typed lead back |
 | 2026-10-24 | trivial | AutoFormat starts bulleted and numbered lists as you type (`* `, `-- `, `> `, `1. `, `a) ` and the rest), with an AutoCorrect option to turn it off |
 | 2026-10-22 | minor | Animation Pane ▸ Play From starts the preview at the selected effect; gap 10 keeps the effect gallery (7–13 h) |

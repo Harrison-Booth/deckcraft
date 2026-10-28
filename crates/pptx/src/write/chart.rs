@@ -639,7 +639,7 @@ pub fn chart_xml(c: &Chart) -> (Vec<u8>, bool) {
     w.val("c:roundedCorners", 0);
     w.val("c:style", c.style.clamp(1, 48));
     w.open0("c:chart");
-    match (&c.title, c.auto_title) {
+    match (&c.title, c.auto_title == Some(true)) {
         (_, true) => w.val("c:autoTitleDeleted", 0),
         (Some(t), false) => {
             title(&mut w, t, c);
@@ -1085,13 +1085,13 @@ mod tests {
         c.series.truncate(1);
         c.series[0].name = "Sales".into();
         c.title = Some("Sales".into());
-        c.auto_title = true;
+        c.auto_title = Some(true);
         let xml = super::chart_xml(&c).0;
         let xml = String::from_utf8(xml).unwrap();
         assert!(xml.contains("<c:autoTitleDeleted val=\"0\"/>"), "{xml}");
         assert!(!xml.contains("<c:title>"), "{xml}");
         let back = crate::read::chart::read_chart_xml(xml.as_bytes()).unwrap();
-        assert!(back.auto_title);
+        assert_eq!(back.auto_title, Some(true));
         assert_eq!(back.title, c.title);
     }
 

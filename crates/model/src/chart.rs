@@ -319,8 +319,10 @@ impl ErrorBars {
 pub struct Chart {
     pub kind: ChartType,
     pub title: Option<String>,
-    /// The displayed title follows the only series (`c:autoTitleDeleted val="0"`).
-    pub auto_title: bool,
+    /// Whether a title with no `c:title` follows its series (`c:autoTitleDeleted val="0"`).
+    /// `None` is also how older native files signal that this must be recovered from `raw`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_title: Option<bool>,
     pub categories: Vec<String>,
     pub series: Vec<Series>,
     pub legend: Option<String>,
@@ -448,7 +450,7 @@ impl Default for Chart {
         Chart {
             kind: ChartType::Column,
             title: Some("Chart Title".into()),
-            auto_title: false,
+            auto_title: None,
             categories: vec![],
             series: vec![],
             legend: Some("b".into()),
