@@ -255,7 +255,10 @@ impl Canvas for PdfCanvas<'_, '_> {
                 None
             };
             match path {
-                Some(path) => self.s.push_clip_path(&path, &FillRule::NonZero),
+                Some(path) => {
+                    let rule = if self.even_odd { FillRule::EvenOdd } else { FillRule::NonZero };
+                    self.s.push_clip_path(&path, &rule)
+                }
                 // Nothing can show through an empty clip.
                 None => self.s.push_opacity(NormalizedF32::ZERO),
             }
