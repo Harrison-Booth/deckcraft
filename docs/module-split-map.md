@@ -29,7 +29,8 @@ To find the exact new home of one function: `git grep -n 'fn name' origin/main -
 
 ## Split files (old file → new modules, all under the old file's folder)
 
-Each old file now holds only the module list and shared items.
+Each old file keeps its module declarations and any code that was not moved; several rows move
+only the tests.
 
 | Old file | New modules |
 |---|---|
@@ -45,7 +46,7 @@ Each old file now holds only the module list and shared items.
 | `geom/src/preset.rs` | `preset/{build, builder, catalog, shapes, tests}.rs` |
 | `media/src/player.rs` | `player/tests.rs` |
 | `render/src/lib.rs` | `src/{geometry, opts, raster, renderer, slide, stroke, text_draw}.rs` |
-| `text/src/lib.rs` | `src/{autonum, breaking, layout, run, shape, symbol}.rs` |
+| `text/src/lib.rs` | `src/{autonum, breaking, layout, run, shape, style, symbol}.rs` |
 | `ui-egui/src/lib.rs` | `src/{app, state, services, clock, ime_hooks, tests}.rs`; the `SlideApp` impl is in `app.rs` and `app/{clipboard, commands, control, files, frame, ime, input, keys, playback}.rs` |
 | `ui-egui/src/panes.rs` (deleted) | `panels.rs` and `panels/{animation, background, comments, designer, format_shape, smartart, thesaurus}.rs` (format-shape pane → `format_shape.rs`, slide background → `background.rs`, animation pane → `animation.rs`, comments and revisions → `comments.rs`) |
 | `ui-egui/src/backstage.rs` | `backstage/{files, info, print}.rs` |
@@ -63,5 +64,7 @@ and `packaging/common.sh` (one line each, path references).
 
 1. `git merge origin/main` (never rebase) and let git list the conflicting old files.
 2. For each conflicting hunk, find the new module above, apply the hunk there by hand, and keep
-   the old file's side only for module declarations.
+   the old file's side only for module declarations. `ui-egui/src/panes.rs` is deleted: do not
+   restore it, move its hunks into `panels.rs` or the listed `panels/` modules (the crate exposes
+   `panels` and aliases it as `panes`).
 3. Run `cargo xtask ci`.
