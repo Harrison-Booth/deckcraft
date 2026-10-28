@@ -477,8 +477,22 @@ fn fx_slider(
         } else {
             ui.data_mut(|d| d.remove::<f64>(sid));
         }
-        if r.drag_stopped() || r.lost_focus() || (r.changed() && !r.dragged()) {
-            ui.data_mut(|d| d.remove::<f64>(sid));
+        // `changed()` also fires when the slider only rounds the value it shows (55.000000000000007 to 55,
+        // or 0.5 to 1 on focus, which re-added a reflection the pane had just cleared): only a move to
+        // another shown value is an edit. Accessibility and keyboard edits are such moves too.
+        let shown_changed = r.changed() && v.round() != value.round();
+        // A slider that only had focus when another control took it (the Reflection "None" button)
+        // must not commit its stale value: only an edit the user made is committed on losing focus.
+        let edited_id = sid.with("edited");
+        if shown_changed {
+            ui.data_mut(|d| d.insert_temp(edited_id, true));
+        }
+        let edited = ui.data_mut(|d| d.get_temp::<bool>(edited_id)).unwrap_or(false);
+        if r.drag_stopped() || (r.lost_focus() && edited) || (shown_changed && !r.dragged()) {
+            ui.data_mut(|d| {
+                d.remove::<f64>(sid);
+                d.remove::<bool>(edited_id);
+            });
             run(app, "shape.effects", json!({key: {prop: v * scale}}));
         }
     });
