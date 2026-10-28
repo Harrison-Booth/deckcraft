@@ -240,6 +240,28 @@ fn editing_the_text_of_a_bare_normautofit_fits_it() {
 }
 
 #[test]
+fn text_set_fits_a_placeholder_that_inherits_shrink() {
+    use deckcraft_model::text::AutoFit;
+    let mut s = session();
+    let title = s.doc().unwrap().current_slide().unwrap().shapes[0].id;
+    // The layout's title takes shrink-on-overflow, which the slide's title inherits.
+    s.edit(|doc, _| {
+        let lid = doc.slides[0].layout;
+        let m = std::sync::Arc::make_mut(&mut doc.masters[0]);
+        let l = m.layouts.iter_mut().find(|l| l.id == lid).unwrap();
+        let ph = l.shapes.iter_mut().find(|s| s.ph.is_some()).unwrap();
+        ph.text.get_or_insert_with(Default::default).body.autofit = Some(AutoFit::Shrink { font_scale: None, line_reduction: 0.0 });
+        Ok(())
+    })
+    .unwrap();
+    let text = (0..40).map(|i| format!("Line {i}")).collect::<Vec<_>>().join("\n");
+    s.execute("text.set", &json!({"id": title.0, "text": text})).unwrap();
+    let sh = s.doc().unwrap().shape(title).cloned().unwrap();
+    let Some(AutoFit::Shrink { font_scale, .. }) = sh.text.unwrap().body.autofit else { panic!("shrink") };
+    assert!(font_scale.is_some_and(|v| v < 1.0), "the inherited shrink fits the new text: {font_scale:?}");
+}
+
+#[test]
 fn smart_quotes_and_autocorrect() {
     let mut s = session();
     let title = s.doc().unwrap().current_slide().unwrap().shapes[0].id.0;

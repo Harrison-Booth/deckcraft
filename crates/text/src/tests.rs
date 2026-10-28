@@ -217,7 +217,7 @@ fn shrink_steps_are_the_ones_powerpoint_saves() {
 fn shrink_picks_the_first_step_that_fits() {
     for n in 1..40 {
         let text = (0..n).map(|i| format!("Line number {i}")).collect::<Vec<_>>().join("\n");
-        let (p, mut sh) = setup(&text, 300.0, 200.0);
+        let (p, sh) = setup(&text, 300.0, 200.0);
         let l = lay(&p, &sh, 300.0, 200.0);
         let i = crate::SHRINK_STEPS
             .iter()
@@ -225,10 +225,13 @@ fn shrink_picks_the_first_step_that_fits() {
             .unwrap_or_else(|| panic!("{n} lines: {} {}", l.font_scale, l.line_reduction));
         assert!(!l.overflow || i == crate::SHRINK_STEPS.len() - 1, "{n} lines");
         if i > 0 {
-            // The step before it is drawn as saved and overflows.
+            // The step before it, laid out at that scale alone (no shrink search), overflows.
             let (font_scale, line_reduction) = crate::SHRINK_STEPS[i - 1];
-            sh.text.as_mut().unwrap().body.autofit = Some(AutoFit::Shrink { font_scale: Some(font_scale), line_reduction });
-            assert!(lay(&p, &sh, 300.0, 200.0).overflow, "{n} lines at step {}", i - 1);
+            let ctx = Ctx::for_slide(&p, &p.slides[0]).unwrap();
+            let opts = Opts { rect: Rect::new(0.0, 0.0, 300.0, 200.0), fields: &NoFields, prompt_color: None, no_shrink: false };
+            let body = sh.text.as_ref().unwrap();
+            let before = layout_scaled(&ctx, &sh, body, &resolve::body(&ctx, &sh), &opts, font_scale, line_reduction);
+            assert!(before.overflow, "{n} lines at step {}", i - 1);
         } else {
             assert!(!l.overflow);
         }
