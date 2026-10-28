@@ -261,7 +261,7 @@ fn point_fills(w: &mut W, s: &Series, g: Group) {
     }
 }
 
-fn series(w: &mut W, c: &Chart, s: &Series, i: usize, kind: ChartType, g: Group) {
+fn series(w: &mut W, c: &Chart, s: &Series, i: usize, kind: ChartType, g: Group, text_color_explicit: bool) {
     w.open0("c:ser");
     w.val("c:idx", i);
     w.val("c:order", i);
@@ -312,7 +312,7 @@ fn series(w: &mut W, c: &Chart, s: &Series, i: usize, kind: ChartType, g: Group)
     }
     point_fills(w, s, g);
     if let Some(d) = s.data_labels {
-        data_labels(w, c, d, matches!(g, Group::Pie | Group::Doughnut));
+        data_labels(w, c, d, matches!(g, Group::Pie | Group::Doughnut), text_color_explicit);
     }
     // After labels, before the category and value caches (ECMA-376 series content order).
     if matches!(g, Group::Bar | Group::Line | Group::Area | Group::Scatter) {
@@ -401,9 +401,9 @@ fn trendline(w: &mut W, t: &Trendline) {
     w.close("c:trendline");
 }
 
-fn data_labels(w: &mut W, c: &Chart, show: bool, pie: bool) {
+fn data_labels(w: &mut W, c: &Chart, show: bool, pie: bool, text_color_explicit: bool) {
     w.open0("c:dLbls");
-    if pie && c.text_color.is_none() {
+    if pie && !text_color_explicit {
         let white = deckcraft_model::ColorRef::rgb(deckcraft_color::Rgba::WHITE);
         tx_pr_values(w, Some(&white), c.text_size, true);
     } else {
@@ -536,7 +536,7 @@ fn axes(w: &mut W, c: &Chart, g: Group) {
     w.close("c:valAx");
 }
 
-fn plot_group(w: &mut W, c: &Chart, kind: ChartType, list: &[(usize, &Series)]) {
+fn plot_group(w: &mut W, c: &Chart, kind: ChartType, list: &[(usize, &Series)], text_color_explicit: bool) {
     let g = group_of(kind);
     let grouping = if kind.percent() {
         "percentStacked"
@@ -575,10 +575,10 @@ fn plot_group(w: &mut W, c: &Chart, kind: ChartType, list: &[(usize, &Series)]) 
         w.val("c:varyColors", vary);
     }
     for (i, s) in list {
-        series(w, c, s, *i, kind, g);
+        series(w, c, s, *i, kind, g, text_color_explicit);
     }
     if c.data_labels {
-        data_labels(w, c, true, matches!(g, Group::Pie | Group::Doughnut));
+        data_labels(w, c, true, matches!(g, Group::Pie | Group::Doughnut), text_color_explicit);
     }
     match g {
         Group::Bar => {
@@ -655,6 +655,10 @@ fn kept_chartex(c: &Chart) -> Option<Vec<u8>> {
 
 /// The chart part XML, and whether it is the original part (so its relationships still apply).
 pub fn chart_xml(c: &Chart) -> (Vec<u8>, bool) {
+    chart_xml_with_text_color_explicit(c, c.text_color.is_some())
+}
+
+pub(crate) fn chart_xml_with_text_color_explicit(c: &Chart, text_color_explicit: bool) -> (Vec<u8>, bool) {
     // Reuse the kept part when the chart is unchanged since it was read.
     if let Some(raw) = &c.raw
         && !raw.contains(NS_CX)
@@ -719,7 +723,7 @@ pub fn chart_xml(c: &Chart) -> (Vec<u8>, bool) {
                 })
                 .copied()
                 .collect();
-            plot_group(&mut w, c, k, &list);
+            plot_group(&mut w, c, k, &list, text_color_explicit);
         }
         axes(&mut w, c, Group::Bar);
     } else {
@@ -746,7 +750,7 @@ pub fn chart_xml(c: &Chart) -> (Vec<u8>, bool) {
         ) {
             log::warn!("pptx: {} chart written as a column chart", c.kind.label());
         }
-        plot_group(&mut w, c, main, &indexed);
+        plot_group(&mut w, c, main, &indexed, text_color_explicit);
         let g = group_of(main);
         if !matches!(g, Group::Pie | Group::Doughnut) {
             axes(&mut w, c, g);
