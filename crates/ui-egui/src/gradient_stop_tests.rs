@@ -49,6 +49,20 @@ fn brightness_keeps_the_place_of_the_luminance_transforms() {
     assert_eq!(darker.mods, vec![ColorTransform::Tint(50_000), ColorTransform::LumMod(80_000), ColorTransform::Alpha(75_000)]);
 }
 
+/// A transform between two separated luminance transforms stays between the new pair.
+#[test]
+fn brightness_keeps_a_transform_between_separated_luminance_transforms() {
+    let c = ColorRef::scheme(SchemeSlot::Accent1)
+        .with(ColorTransform::LumMod(60_000))
+        .with(ColorTransform::Tint(50_000))
+        .with(ColorTransform::LumOff(40_000));
+    assert_eq!(
+        with_brightness(c.clone(), 0.3).mods,
+        vec![ColorTransform::LumMod(70_000), ColorTransform::Tint(50_000), ColorTransform::LumOff(30_000)]
+    );
+    assert_eq!(with_brightness(c, -0.3).mods, vec![ColorTransform::LumMod(70_000), ColorTransform::Tint(50_000)]);
+}
+
 /// The order survives the command boundary: `shape.fill` gets the stop as `cref_param` writes it.
 #[test]
 fn transform_order_survives_the_gradient_command() {

@@ -67,16 +67,28 @@ pub fn brightness_of(c: &ColorRef) -> f64 {
 /// `lumOff` b, darker is `lumMod` 1+b. Other transforms, such as alpha, are kept.
 pub fn with_brightness(mut c: ColorRef, b: f64) -> ColorRef {
     let is_lum = |m: &ColorTransform| matches!(m, ColorTransform::LumMod(_) | ColorTransform::LumOff(_));
-    // Transforms apply in order, so the new pair takes the old pair's place (or goes first).
-    let at = c.mods.iter().position(is_lum).unwrap_or(0);
-    c.mods.retain(|m| !is_lum(m));
     let b = b.clamp(-1.0, 1.0);
     let ppm = |v: f64| (v * 100_000.0).round() as i32;
-    if b > 0.0 {
-        c.mods.splice(at..at, [ColorTransform::LumMod(ppm(1.0 - b)), ColorTransform::LumOff(ppm(b))]);
-    } else if b < 0.0 {
-        c.mods.insert(at, ColorTransform::LumMod(ppm(1.0 + b)));
+    let new_mod = (b != 0.0).then(|| ColorTransform::LumMod(ppm(1.0 - b.max(0.0) + b.min(0.0))));
+    let new_off = (b > 0.0).then(|| ColorTransform::LumOff(ppm(b)));
+    // Transforms apply in order, so the new lumMod takes the first old luminance transform's place and
+    // the new lumOff the last one's, leaving any transform between them where it was (or both go first).
+    let (Some(first), Some(last)) = (c.mods.iter().position(is_lum), c.mods.iter().rposition(is_lum)) else {
+        c.mods.splice(0..0, new_mod.into_iter().chain(new_off));
+        return c;
+    };
+    let mut mods = Vec::with_capacity(c.mods.len() + 1);
+    for (i, m) in std::mem::take(&mut c.mods).into_iter().enumerate() {
+        if i == first {
+            mods.extend(new_mod.clone());
+        }
+        if i == last {
+            mods.extend(new_off.clone());
+        } else if !is_lum(&m) {
+            mods.push(m);
+        }
     }
+    c.mods = mods;
     c
 }
 
