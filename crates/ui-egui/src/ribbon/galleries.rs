@@ -3,8 +3,9 @@ use super::*;
 /// A ColorRef as a command colour parameter.
 pub fn cref_param(c: &deckcraft_model::ColorRef) -> Value {
     let mut v = cref_fields(c);
-    // A JSON object has no order, but transforms apply in sequence, so two or more also go in `mods`.
-    if c.mods.len() > 1
+    // A JSON object has no order, but transforms apply in sequence, so two or more also go in `mods`,
+    // as does a single one without a value (`Inv`), which the object fields cannot carry.
+    if (c.mods.len() > 1 || c.mods.iter().any(|m| m.value().is_none()))
         && let Value::Object(o) = &mut v
     {
         o.insert("mods".into(), c.mods.iter().map(|m| json!([m.xml_name(), m.value()])).collect());

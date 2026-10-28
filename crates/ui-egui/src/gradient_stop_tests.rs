@@ -111,3 +111,12 @@ fn the_brightness_slider_lightens_the_selected_stop() {
     assert!(lighter > 0.3 && lighter < 0.7, "a click three quarters along lightens the stop, got {lighter}");
     assert_eq!(brightness_of(&stop_color(&h, id, 1)), 0.0, "the other stop is untouched");
 }
+
+#[test]
+fn a_lone_valueless_transform_is_sent_in_mods() {
+    // `Inv` has no number, so the object fields cannot carry it: it goes in `mods` alone.
+    let mut c = ColorRef::rgb(deckcraft_color::Rgba::rgb(10, 20, 30));
+    c.mods.push(ColorTransform::Inv);
+    let v = crate::ribbon::cref_param(&c);
+    assert_eq!(v["mods"], json!([["inv", null]]));
+}
