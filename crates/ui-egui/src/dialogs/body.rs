@@ -849,12 +849,13 @@ fn dlg_replace_fonts(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     cancel
 }
 
-fn dlg_symbol(app: &mut SlideApp, ui: &mut Ui, _d: &mut Dialog) -> bool {
+fn dlg_symbol(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
     ui.label("Click a symbol to insert it at the insertion point.");
-    let groups: [(&str, &str); 6] = [
+    let groups: [(&str, &str); 7] = [
         ("Punctuation", "–—‘’“”…•·§¶†‡‰′″‹›«»¡¿"),
         ("Currency", "$€£¥¢₹₩₽₺₿"),
         ("Math", "±×÷≠≈≤≥∞√∑∏∫∂∆∇∈∉∩∪⊂⊃∀∃¬∧∨⇒⇔°′"),
+        ("Letterlike", "©®™"),
         ("Greek", "αβγδεζηθικλμνξοπρστυφχψωΓΔΘΛΞΠΣΦΨΩ"),
         ("Arrows", "←↑→↓↔↕⇐⇑⇒⇓↖↗↘↙⟵⟶"),
         ("Shapes", "■□▪▫▲△▶▷▼▽◀◁◆◇○●◎★☆✓✔✗✘♠♣♥♦"),
@@ -864,6 +865,7 @@ fn dlg_symbol(app: &mut SlideApp, ui: &mut Ui, _d: &mut Dialog) -> bool {
         ui.horizontal_wrapped(|ui| {
             for c in chars.chars() {
                 if ui.add(egui::Button::new(egui::RichText::new(c.to_string()).size(16.0)).min_size(vec2(26.0, 26.0))).clicked() {
+                    d.fields.insert("charCode".into(), format!("{:04X}", c as u32));
                     if app.session.active().is_some_and(|s| s.selection.text.is_none()) {
                         let _ = app.run("text.edit", json!({}));
                     }
@@ -872,8 +874,41 @@ fn dlg_symbol(app: &mut SlideApp, ui: &mut Ui, _d: &mut Dialog) -> bool {
             }
         });
     }
+    ui.horizontal(|ui| {
+        ui.label("Character code:");
+        let mut code = d.get("charCode", "");
+        ui.add(egui::TextEdit::singleline(&mut code).desired_width(72.0).hint_text("00A9"));
+        d.fields.insert("charCode".into(), code.clone());
+        if ui.button("Insert").clicked() {
+            if let Some(c) = symbol_from_code(&code) {
+                if app.session.active().is_some_and(|s| s.selection.text.is_none()) {
+                    let _ = app.run("text.edit", json!({}));
+                }
+                let _ = app.run("insert.symbol", json!({"text": c.to_string()}));
+            }
+        }
+    });
     let (ok, cancel) = buttons(ui, "Close");
     ok || cancel
+}
+
+fn symbol_from_code(code: &str) -> Option<char> {
+    let code = code.trim().trim_start_matches("U+").trim_start_matches("u+").trim_start_matches("0x").trim_start_matches("0X");
+    char::from_u32(u32::from_str_radix(code, 16).ok()?)
+}
+
+#[cfg(test)]
+mod symbol_tests {
+    use super::symbol_from_code;
+
+    #[test]
+    fn parses_unicode_character_codes() {
+        assert_eq!(symbol_from_code("00A9"), Some('©'));
+        assert_eq!(symbol_from_code("U+00AE"), Some('®'));
+        assert_eq!(symbol_from_code("0x2122"), Some('™'));
+        assert_eq!(symbol_from_code("D800"), None);
+        assert_eq!(symbol_from_code("not hex"), None);
+    }
 }
 
 fn dlg_equation(app: &mut SlideApp, ui: &mut Ui, d: &mut Dialog) -> bool {
