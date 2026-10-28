@@ -193,7 +193,9 @@ pub(super) fn shape_format(app: &mut SlideApp, ui: &mut Ui) {
                     }
                     if let Some(sh) = app.session.active().and_then(|d| d.selected_shapes().first().map(|s| (*s).clone())) {
                         ui.separator();
-                        crate::panes::text_transparency_slider(app, ui, &sh);
+                        let fill =
+                            sh.text.as_ref().and_then(|t| t.paragraphs.iter().flat_map(|p| p.runs.iter()).next()).and_then(|r| r.props.fill.as_ref());
+                        crate::panes::text_transparency_slider(app, ui, &sh, fill);
                     }
                 });
             }

@@ -488,7 +488,7 @@ fn text_fill_options(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shap
         });
     }
     if kind != "none" {
-        text_transparency_slider(app, ui, sh);
+        text_transparency_slider(app, ui, sh, fill.as_ref());
     }
 }
 
@@ -798,10 +798,9 @@ fn three_d_options(app: &mut SlideApp, ui: &mut Ui, id: u32, raw: Option<&str>) 
     }
 }
 
-/// The transparency (0–1) of a shape's first text run as stored on it.
-pub(crate) fn text_transparency_of(sh: &deckcraft_model::Shape) -> f64 {
-    let run = sh.text.as_ref().and_then(|t| t.paragraphs.iter().flat_map(|p| p.runs.iter()).next());
-    match run.and_then(|r| r.props.fill.as_ref()) {
+/// The transparency (0–1) of the effective fill shown by Text Options.
+pub(crate) fn text_transparency_of(fill: Option<&Fill>) -> f64 {
+    match fill {
         Some(Fill::Solid { color }) => 1.0 - color.alpha(),
         Some(Fill::Gradient(g)) => g.stops.first().map_or(0.0, |s| 1.0 - s.color.alpha()),
         _ => 0.0,
@@ -809,11 +808,11 @@ pub(crate) fn text_transparency_of(sh: &deckcraft_model::Shape) -> f64 {
 }
 
 /// Text Fill › Transparency, as in PowerPoint's Format Shape › Text Options (#32).
-pub(crate) fn text_transparency_slider(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape) {
+pub(crate) fn text_transparency_slider(app: &mut SlideApp, ui: &mut Ui, sh: &deckcraft_model::Shape, fill: Option<&Fill>) {
     ui.horizontal(|ui| {
         let label = ui.label("Transparency");
         let id = ui.scope_id().with(("text-transparency", sh.id));
-        let stored = (text_transparency_of(sh) * 100.0) as f32;
+        let stored = (text_transparency_of(fill) * 100.0) as f32;
         let mut v: f32 = ui.data_mut(|d| d.get_temp(id).unwrap_or(stored));
         let r = ui.add(egui::Slider::new(&mut v, 0.0..=100.0).suffix("%")).labelled_by(label.id);
         if r.drag_stopped() || r.lost_focus() || (r.changed() && !r.dragged()) {
