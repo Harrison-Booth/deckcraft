@@ -450,6 +450,69 @@ fn output_format(path: &str) -> Result<&'static str, String> {
     })
 }
 
+enum CommandSource {
+    Inline(String),
+    File(String),
+}
+
+const MAX_COMMAND_FILE_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+fn read_command_file_line(reader: &mut impl std::io::BufRead, line: &mut Vec<u8>) -> std::io::Result<bool> {
+    line.clear();
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(!line.is_empty());
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let count = newline.unwrap_or(available.len());
+        line.len().checked_add(count).filter(|length| *length <= MAX_COMMAND_FILE_LINE_BYTES).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("command line exceeds {MAX_COMMAND_FILE_LINE_BYTES} byte limit"))
+        })?;
+        line.extend_from_slice(&available[..count]);
+        reader.consume(count + usize::from(newline.is_some()));
+        if newline.is_some() {
+            return Ok(true);
+        }
+    }
+}
+
+/// The same command syntax and execution path for --cmd and each command-file line.
+fn run_command(s: &mut Session, command: &str, print: bool) -> Result<(), String> {
+    let (id, params) = match command.split_once('=') {
+        Some((id, j)) => (id, serde_json::from_str::<Value>(j).map_err(|e| format!("{id}: bad JSON: {e}"))?),
+        None => (command, json!({})),
+    };
+    let r = s.execute(id, &params).map_err(|e| e.to_string())?;
+    if print {
+        outln!("{id} → {r}");
+    }
+    Ok(())
+}
+
+fn run_command_file(s: &mut Session, path: &str, print: bool) -> Result<(), String> {
+    use std::io::BufReader;
+
+    let file = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut reader = BufReader::new(file);
+    let mut bytes = Vec::new();
+    let mut line_number = 0usize;
+    loop {
+        line_number = line_number.checked_add(1).ok_or_else(|| format!("{path}: too many lines"))?;
+        if !read_command_file_line(&mut reader, &mut bytes).map_err(|e| format!("{path}:{line_number}: {e}"))? {
+            break;
+        }
+        let line = std::str::from_utf8(&bytes).map_err(|e| format!("{path}:{line_number}: invalid UTF-8: {e}"))?;
+        let line = if line_number == 1 { line.trim_start_matches('\u{feff}') } else { line };
+        let command = line.trim();
+        if command.is_empty() || command.starts_with('#') {
+            continue;
+        }
+        run_command(s, command, print).map_err(|e| format!("{path}:{line_number}: {e}"))?;
+    }
+    Ok(())
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let mut input = None;
     let mut sample = false;
@@ -463,7 +526,8 @@ fn run(args: &[String]) -> Result<(), String> {
         match a.as_str() {
             "--in" => input = Some(it.next().cloned().ok_or("--in needs a file")?),
             "--sample" => sample = true,
-            "--cmd" => cmds.push(it.next().cloned().ok_or("--cmd needs COMMAND[=PARAMS]")?),
+            "--cmd" => cmds.push(CommandSource::Inline(it.next().cloned().ok_or("--cmd needs COMMAND[=PARAMS]")?)),
+            "--cmd-file" => cmds.push(CommandSource::File(it.next().cloned().ok_or("--cmd-file needs a file")?)),
             "--save" => save = Some(it.next().cloned().ok_or("--save needs a path")?),
             "--export" => export = Some(it.next().cloned().ok_or("--export needs a path")?),
             "--export-params" => {
@@ -486,14 +550,10 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let mut s = Session::new();
     open(&mut s, input.as_deref(), sample)?;
-    for c in cmds {
-        let (id, p) = match c.split_once('=') {
-            Some((id, j)) => (id.to_string(), serde_json::from_str::<Value>(j).map_err(|e| format!("{id}: bad JSON: {e}"))?),
-            None => (c.clone(), json!({})),
-        };
-        let r = s.execute(&id, &p).map_err(|e| e.to_string())?;
-        if print {
-            outln!("{id} → {r}");
+    for source in cmds {
+        match source {
+            CommandSource::Inline(command) => run_command(&mut s, &command, print)?,
+            CommandSource::File(path) => run_command_file(&mut s, &path, print)?,
         }
     }
     if let Some(p) = save {
