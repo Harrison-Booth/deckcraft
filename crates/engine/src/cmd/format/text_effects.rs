@@ -1,6 +1,7 @@
 use super::{
-    Line, Result, Session, Value, bad, color_param, current_run, ed, edit_shapes, f64_or, format_body, format_run, json, ok, on_param, str_param,
+    Line, Result, Session, Value, bad, bool_or, color_param, current_run, ed, edit_shapes, format_body, format_run, json, ok, on_param, str_param,
 };
+use deckcraft_model::{ColorRef, style::Fill};
 
 pub(super) fn text_shadow(s: &mut Session, p: &Value) -> Result<Value> {
     let v = on_param(p, Some(current_run(s).shadow.is_some()));
