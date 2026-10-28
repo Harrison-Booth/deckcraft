@@ -150,8 +150,8 @@ struct Outline<'a> {
     /// The level a `\s1`-`\s9` heading style gives, used when no `\outlinelevel` is set.
     style_level: Option<u32>,
     indent: i64,
-    /// A paragraph's properties were set since the last `\par`: only then can an empty one be a title.
-    fresh: bool,
+    /// Which `\s1`-`\s9` the stylesheet names "heading N"; any other `\sN` is a body style.
+    headings: [bool; 10],
     pending_skip: usize,
     line: String,
     /// Paragraphs so far: outline level and text (empty only for an empty level-0 title).
@@ -185,6 +185,58 @@ pub fn rtf_to_slides(p: &mut Presentation, rtf: &str) -> usize {
     crate::add_outline_slides(p, slides)
 }
 
+/// The `\sN` styles the stylesheet calls "heading N": `{\s1\li360 heading 1;}`.
+fn heading_styles(rtf: &str) -> [bool; 10] {
+    let mut out = [false; 10];
+    let Some(at) = rtf.find("\\stylesheet") else { return out };
+    let b = rtf.as_bytes();
+    let (mut i, mut depth) = (at + "\\stylesheet".len(), 1);
+    let (mut style, mut name): (Option<usize>, String) = (None, String::new());
+    while i < b.len() && depth > 0 {
+        match b[i] {
+            b'{' => {
+                depth += 1;
+                (style, name) = (None, String::new());
+            }
+            b'}' => {
+                depth -= 1;
+                if depth == 1
+                    && let Some(n) = style.filter(|n| (1..=9).contains(n))
+                {
+                    out[n] = name.trim().to_ascii_lowercase().starts_with("heading");
+                }
+            }
+            b'\\' => {
+                let w = i + 1;
+                let mut j = w;
+                while j < b.len() && b[j].is_ascii_alphabetic() {
+                    j += 1;
+                }
+                let k = j;
+                while j < b.len() && (b[j].is_ascii_digit() || j == k && b[j] == b'-') {
+                    j += 1;
+                }
+                if depth == 2 && &rtf[w..k] == "s" {
+                    style = rtf[k..j].parse().ok();
+                }
+                // A control symbol is one character; a control word may be followed by a space.
+                i = if k == w {
+                    w + 1
+                } else if b.get(j) == Some(&b' ') {
+                    j + 1
+                } else {
+                    j
+                };
+                continue;
+            }
+            c if depth == 2 && !matches!(c, b'\r' | b'\n') => name.push(c as char),
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
 fn paragraphs(rtf: &str) -> Vec<(usize, String)> {
     let mut p = Outline {
         rtf,
@@ -195,13 +247,13 @@ fn paragraphs(rtf: &str) -> Vec<(usize, String)> {
         level: None,
         style_level: None,
         indent: 0,
-        fresh: false,
+        headings: heading_styles(rtf),
         pending_skip: 0,
         line: String::new(),
         out: vec![],
     };
     p.run();
-    p.flush();
+    p.flush(false);
     p.out.into_iter().map(|(n, t)| (n, finish_surrogates(t))).collect()
 }
 
@@ -283,20 +335,17 @@ impl Outline<'_> {
 
     fn apply(&mut self, word: &str, arg: Option<i64>) {
         match word {
-            "par" => self.flush(),
+            "par" => self.flush(true),
             "pard" => {
                 self.level = None;
                 self.style_level = None;
                 self.indent = 0;
-                self.fresh = true;
             }
             "outlinelevel" => {
                 self.level = arg.map(|a| a.clamp(0, 9) as u32);
-                self.fresh = true;
             }
             "s" => {
-                self.style_level = arg.filter(|a| (1..=9).contains(a)).map(|a| a as u32 - 1);
-                self.fresh = true;
+                self.style_level = arg.filter(|a| (1..=9).contains(a) && self.headings[*a as usize]).map(|a| a as u32 - 1);
             }
             "li" => self.indent = arg.unwrap_or(0),
             "tab" | "line" => self.line.push(' '),
@@ -354,7 +403,7 @@ impl Outline<'_> {
             b'\\' | b'{' | b'}' => self.line.push(n as char),
             b'~' => self.line.push('\u{a0}'),
             b'_' => self.line.push('\u{2011}'),
-            b'\n' | b'\r' => self.flush(),
+            b'\n' | b'\r' => self.flush(true),
             _ => {}
         }
     }
@@ -373,16 +422,16 @@ impl Outline<'_> {
     }
 
     /// Ends the current line: a non-empty line becomes one entry at its level, and so does an empty
-    /// one that is explicitly a title (`\s1` or `\outlinelevel0`): PowerPoint writes an untitled slide so.
-    fn flush(&mut self) {
+    /// one that a `\par` ends while its style is a title (`\s1` or `\outlinelevel0`, inherited or
+    /// not): PowerPoint writes an untitled slide so. The flush at the end of the input is no `\par`.
+    fn flush(&mut self, par: bool) {
         let text = self.line.trim();
         let explicit = self.level.or(self.style_level);
-        if !text.is_empty() || self.fresh && explicit == Some(0) {
+        if !text.is_empty() || par && explicit == Some(0) {
             let n = explicit.map(|l| l as i64).unwrap_or(self.indent.saturating_add(180) / 360).clamp(0, 9) as usize;
             self.out.push((n, text.to_string()));
         }
         self.line.clear();
-        self.fresh = false;
     }
 }
 
@@ -508,11 +557,24 @@ mod tests {
     /// paragraph, and a title may start `- `; all three must survive reading.
     #[test]
     fn reads_powerpoint_outline_with_styles_and_empty_titles() {
-        let rtf = r"{\rtf1\ansi{\stylesheet{\s1\li360 heading 1;}{\s2\li1080 heading 2;}}\pard\plain\s1\li0 {\f1 Title one}{\f1 \par }\pard\plain\s2\li360 {\pntext\pard\plain\f3 \'95\tab}{\f2 Body a\par }\pard\plain\s3\li1080 Body b\par\pard\plain\s1 {\f3 \par }\pard\plain\s1 - dash\par\pard\plain\s2 x\par}";
+        let rtf = r"{\rtf1\ansi{\stylesheet{\s1\li360 heading 1;}{\s2\li1080 heading 2;}{\s3\li1800 heading 3;}}\pard\plain\s1\li0 {\f1 Title one}{\f1 \par }\pard\plain\s2\li360 {\pntext\pard\plain\f3 \'95\tab}{\f2 Body a\par }\pard\plain\s3\li1080 Body b\par\pard\plain\s1 {\f3 \par }\pard\plain\s1 - dash\par\pard\plain\s2 x\par}";
         assert_eq!(rtf_to_outline(rtf), "Title one\n\tBody a\n\t\tBody b\n- dash\n\tx\n");
         let mut p = deckcraft_model::defaults::blank_presentation(deckcraft_model::defaults::WIDE, Default::default(), false);
         assert_eq!(rtf_to_slides(&mut p, rtf), 3);
         assert_eq!(crate::slides_to_outline(&p), "Title one\n\tBody a\n\t\tBody b\n\n- dash\n\tx\n");
+    }
+
+    #[test]
+    fn a_style_the_stylesheet_does_not_call_a_heading_is_a_body_paragraph() {
+        let rtf = r"{\rtf1\ansi{\stylesheet{\s1\li720 Indented body;}{\s2\li360 heading 2;}}\pard\s1\li720 Point\par\pard\s2\li360 Sub\par}";
+        assert_eq!(rtf_to_outline(rtf), "\t\tPoint\n\tSub\n");
+    }
+
+    #[test]
+    fn an_empty_title_after_an_inherited_heading_style_is_kept() {
+        let rtf = r"{\rtf1\ansi{\stylesheet{\s1\li360 heading 1;}}\pard\s1 A\par\par B\par}";
+        let mut p = deckcraft_model::defaults::blank_presentation(deckcraft_model::defaults::WIDE, Default::default(), false);
+        assert_eq!(rtf_to_slides(&mut p, rtf), 3);
     }
 
     #[test]
