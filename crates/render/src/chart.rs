@@ -14,6 +14,30 @@ use crate::color;
 const SLOTS: [SchemeSlot; 6] =
     [SchemeSlot::Accent1, SchemeSlot::Accent2, SchemeSlot::Accent3, SchemeSlot::Accent4, SchemeSlot::Accent5, SchemeSlot::Accent6];
 
+fn title_layout(rctx: &Ctx, title: &str, size: f64, col: Rgba, rect: Rect) -> deckcraft_text::TextLayout {
+    let mut body = TextBody::from_text(title);
+    body.body.inset_l = Some(0.0);
+    body.body.inset_r = Some(0.0);
+    body.body.inset_t = Some(0.0);
+    body.body.inset_b = Some(0.0);
+    body.body.anchor = Some(Anchor::Top);
+    body.body.wrap = Some(true);
+    for p in &mut body.paragraphs {
+        p.props.align = Some(Align::Center);
+        p.props.bullet = Some(Bullet::None);
+        p.props.margin_left = Some(0.0);
+        p.props.indent = Some(0.0);
+        for run in &mut p.runs {
+            run.props.size.get_or_insert(size);
+            run.props.bold.get_or_insert(false);
+            run.props.fill = Some(Fill::solid(ColorRef::rgb(col)));
+        }
+    }
+    let shape = Shape { text: Some(body.clone()), ..Default::default() };
+    let opts = deckcraft_text::Opts { rect, fields: &deckcraft_text::NoFields, prompt_color: None, no_shrink: true };
+    deckcraft_text::layout(rctx, &shape, &body, &opts)
+}
+
 /// Colour of series/point `i`: accents, then darker and lighter rounds.
 pub fn series_color(ctx: &Ctx, c: &Chart, i: usize) -> Rgba {
     let slot = SLOTS.get(i % 6).copied().unwrap_or(SchemeSlot::Accent1);
@@ -303,15 +327,10 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     let title_size = c.title_size.unwrap_or(base * 1.4);
     let mut area = Rect::new(w * 0.04, h * 0.04, w * 0.96, h * 0.96);
     if let Some(t) = &c.title {
-        label(
-            ctx,
-            rctx,
-            m,
-            t,
-            Rect::new(0.0, area.y0, w, area.y0 + title_size * 1.3),
-            LabelStyle { size: title_size, align: Align::Center, anchor: Anchor::Top, col: text_col, bold: false },
-        );
-        area.y0 += title_size * 1.7;
+        let title_rect = Rect::new(0.0, area.y0, w, h);
+        let layout = title_layout(rctx, t, title_size, text_col, title_rect);
+        crate::draw_layout(ctx, &layout, title_rect, m);
+        area.y0 += layout.content_height + title_size * 0.4;
     }
     let pie = matches!(c.kind, ChartType::Pie | ChartType::Doughnut);
     // Legend placed by `c:legendPos`.
@@ -1388,6 +1407,23 @@ mod tests {
     fn tiny_data_gets_several_ticks() {
         let sc = deckcraft_model::chart::axis_scale(1e-13, 5e-13, None, None, None, 8, true);
         assert!(axis_ticks(sc).count() >= 3, "{sc:?}");
+    }
+
+    #[test]
+    fn chart_titles_wrap_and_report_their_actual_height() {
+        let p = deckcraft_model::Presentation::default();
+        let rctx = Ctx::for_slide(&p, &p.slides[0]).expect("slide context");
+        let two = title_layout(&rctx, "A chart title wrapping onto two lines", 18.0, Rgba::BLACK, Rect::new(0.0, 0.0, 260.0, 280.0));
+        let three = title_layout(
+            &rctx,
+            "A much longer chart title that should wrap into three lines at this width",
+            18.0,
+            Rgba::BLACK,
+            Rect::new(0.0, 0.0, 260.0, 280.0),
+        );
+        assert_eq!(two.lines.len(), 2);
+        assert_eq!(three.lines.len(), 3);
+        assert!(three.content_height > two.content_height);
     }
 
     #[test]
