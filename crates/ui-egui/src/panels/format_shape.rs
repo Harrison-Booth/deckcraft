@@ -430,16 +430,25 @@ fn text_choice(app: &mut SlideApp, ui: &mut Ui, label: &str, cmd: &str, key: &st
 fn effective_body(app: &SlideApp, sh: &deckcraft_model::Shape) -> deckcraft_model::text::BodyProps {
     let local = || sh.text.as_ref().map(|t| t.body.clone()).unwrap_or_default();
     let Some(st) = app.session.active() else { return local() };
-    let Some(slide) = st.current_slide() else { return local() };
-    let Some(ctx) = deckcraft_model::resolve::Ctx::for_slide(&st.doc, slide) else { return local() };
+    let Some(ctx) = selection_context(st) else { return local() };
     deckcraft_model::resolve::body(&ctx, sh)
+}
+
+fn selection_context(st: &deckcraft_engine::DocState) -> Option<deckcraft_model::resolve::Ctx<'_>> {
+    use deckcraft_engine::Target;
+    use deckcraft_model::resolve::Ctx;
+    match st.selection.target {
+        Target::Slides => st.current_slide().and_then(|slide| Ctx::for_slide(&st.doc, slide)),
+        Target::Master { master } => st.doc.masters.get(master).map(|m| Ctx::for_master(&st.doc, m)),
+        Target::Layout { master, layout } => st.doc.masters.get(master).and_then(|m| m.layouts.get(layout).map(|l| Ctx::for_layout(&st.doc, m, l))),
+        target @ (Target::Handout | Target::NotesMaster) => deckcraft_engine::page_master(&st.doc, target).map(|m| Ctx::for_master(&st.doc, m)),
+    }
 }
 
 /// The selected run's effective props, or the first run for a shape-level selection.
 fn first_run_props(app: &SlideApp, sh: &deckcraft_model::Shape) -> Option<deckcraft_model::text::RunProps> {
     let st = app.session.active()?;
-    let slide = st.current_slide()?;
-    let ctx = deckcraft_model::resolve::Ctx::for_slide(&st.doc, slide)?;
+    let ctx = selection_context(st)?;
     let shape = if let Some(t) = st.selection.text.as_ref() { st.shape(t.shape)? } else { sh };
     let (para, run) = if let Some(t) = st.selection.text.as_ref() {
         let body = deckcraft_engine::cmd::text::body_of(st, t)?;
@@ -449,7 +458,7 @@ fn first_run_props(app: &SlideApp, sh: &deckcraft_model::Shape) -> Option<deckcr
         (para, deckcraft_model::edit::props_at(body, pos))
     } else {
         let body = sh.text.as_ref()?;
-        let para = body.paragraphs.first()?;
+        let para = body.paragraphs.iter().find(|p| !p.runs.is_empty()).or_else(|| body.paragraphs.first())?;
         let run = para.runs.first().map(|r| r.props.clone()).unwrap_or_default();
         (para, run)
     };

@@ -229,6 +229,10 @@ mod tests {
         let id =
             s.execute("shape.insert", &json!({"preset": "rect", "rect": [40.0, 40.0, 240.0, 80.0], "text": "Hi"})).unwrap()["id"].as_u64().unwrap();
         s.execute("edit.select", &json!({"ids": [id]})).unwrap();
+        s.execute("text.edit", &json!({"id": id})).unwrap();
+        s.execute("text.select", &json!({"anchor": [0, 1], "caret": [0, 2]})).unwrap();
+        s.execute("format.textFill", &json!({"mode": "solid"})).unwrap();
+        s.execute("format.textTransparency", &json!({"value": 0.37})).unwrap();
         let mut app = SlideApp::new(s, Services::default());
         app.ui.pane = Some("format".into());
         app.ui.format_tab = "text".into();
@@ -240,6 +244,10 @@ mod tests {
             app,
         );
         h.run_steps(3);
+        let selected_fill: Vec<f64> = slider_values(&h);
+        assert!(selected_fill.iter().any(|v| (*v - 37.0).abs() < 0.5), "selected run should show 37% text transparency, got {selected_fill:?}");
+        h.state_mut().session.execute("text.select", &json!({"anchor": [0, 0], "caret": [0, 1]})).unwrap();
+        h.run_steps(2);
         let text = |h: &Harness<'_, SlideApp>| h.state().session.active().unwrap().shape(ShapeId(id as u32)).unwrap().text.clone().unwrap();
         let run_props = |h: &Harness<'_, SlideApp>| text(h).paragraphs[0].runs[0].props.clone();
         let click = |h: &mut Harness<'_, SlideApp>, role: Role, label: &str| {
