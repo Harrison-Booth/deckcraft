@@ -3,7 +3,9 @@
 `deckcraft-cli mcp` runs a Model Context Protocol server on stdio. By default it drives its own
 headless engine (no window); with `--connect PORT` it drives a running DeckCraft started with
 `--control PORT`, so an agent and a person can work on the same deck. `--sample` opens the sample
-deck.
+deck. Stdio request frames are limited to 16 MiB including the newline; oversized frames receive a
+JSON-RPC error and are drained so the next request can still be handled. Invalid UTF-8 frames receive
+a parse error.
 
 Connected mode accepts only newline-terminated replies of at most 16 MiB (including the newline),
 with the current request's numeric `id`, a boolean `ok`, and either `result` on success or a string
