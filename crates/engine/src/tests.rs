@@ -262,6 +262,25 @@ fn text_set_fits_a_placeholder_that_inherits_shrink() {
 }
 
 #[test]
+fn text_set_with_a_cell_on_a_shape_still_resets_its_shrink() {
+    use deckcraft_model::text::AutoFit;
+    let mut s = session();
+    let title = s.doc().unwrap().current_slide().unwrap().shapes[0].id;
+    // As if opened from a file PowerPoint saved shrunk.
+    s.edit(|doc, sel| {
+        let shapes = crate::shapes_mut(doc, sel).unwrap();
+        let sh = deckcraft_model::find_shape_mut(shapes, title).unwrap();
+        sh.text.as_mut().unwrap().body.autofit = Some(AutoFit::Shrink { font_scale: Some(0.5), line_reduction: 0.2 });
+        Ok(())
+    })
+    .unwrap();
+    // A shape has no table cell, so `cell` does not keep the saved scale.
+    s.execute("text.set", &json!({"id": title.0, "cell": [0, 0], "text": "Hi"})).unwrap();
+    let sh = s.doc().unwrap().shape(title).cloned().unwrap();
+    assert_eq!(sh.text.unwrap().body.autofit, Some(AutoFit::Shrink { font_scale: Some(1.0), line_reduction: 0.0 }));
+}
+
+#[test]
 fn smart_quotes_and_autocorrect() {
     let mut s = session();
     let title = s.doc().unwrap().current_slide().unwrap().shapes[0].id.0;

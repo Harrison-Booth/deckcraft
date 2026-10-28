@@ -335,6 +335,7 @@ pub(super) fn set(s: &mut Session, p: &Value) -> Result<Value> {
     });
     let inherits_shrink = inherits_shrink.unwrap_or(false);
     edit_shapes(s, &json!({"id": id}), "text.set", |sh| {
+        let in_table = matches!(sh.kind, ShapeKind::Table(_));
         let target = match (&mut sh.kind, cell) {
             (ShapeKind::Table(t), Some((r, c))) => t.cell_mut(r, c).map(|x| &mut x.text),
             (ShapeKind::Table(_), None) => None,
@@ -358,8 +359,8 @@ pub(super) fn set(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
         body.paragraphs = nb.paragraphs;
-        // Only a shape's text is fitted afterwards (`fit_text_box`), so a cell keeps its scale.
-        if cell.is_none() {
+        // Only a shape's text is fitted afterwards (`fit_text_box`), so a table cell keeps its scale.
+        if !in_table {
             if inherits_shrink && body.body.autofit.is_none() {
                 body.body.autofit = Some(AutoFit::Shrink { font_scale: None, line_reduction: 0.0 });
             }
