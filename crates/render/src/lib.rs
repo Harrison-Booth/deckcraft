@@ -49,7 +49,7 @@ use kurbo::{Affine, BezPath, PathEl, Point, Rect, Shape as _, Vec2};
 use vello_common::filter_effects::{EdgeMode, Filter, FilterPrimitive};
 use vello_cpu::{RenderContext, Resources, peniko};
 
-pub use canvas::{Canvas, CanvasImage, Fallback, Paint};
+pub use canvas::{Canvas, CanvasImage, Fallback, Paint, missing_picture};
 pub use deckcraft_anim::{transition_frame, transition_layers, uses_slide_parts};
 pub use extent::{Region, TILE, layout_extent, pasteboard_region, slide_extent};
 pub use images::{decode as decode_image, gif_frame};

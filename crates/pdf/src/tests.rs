@@ -241,6 +241,25 @@ fn jpeg_pictures_are_embedded_as_they_are() {
     assert!(count(&pdf, b"W n") + count(&pdf, b"W\nn") > 0);
 }
 
+/// A PNG whose header reads but whose data doesn't shows the missing-picture placeholder, not a hole.
+#[test]
+fn a_picture_that_cannot_be_decoded_draws_the_placeholder() {
+    let mut p = deck(1);
+    let empty = plain(&p, &opts(PageLayout::Slides));
+    let png = deckcraft_render::Image { width: 8, height: 8, pixels: vec![255; 8 * 8 * 4] }.to_png();
+    let media = p.add_media("broken.png", "image/png", png[..33].to_vec()).expect("media");
+    let pic = Shape {
+        id: ShapeId(900),
+        xfrm: Some(Xfrm::new(100.0, 100.0, 320.0, 240.0)),
+        kind: ShapeKind::Picture { fill: PictureFill { media, ..Default::default() } },
+        ..Default::default()
+    };
+    add(&mut p, 0, pic);
+    let pdf = plain(&p, &opts(PageLayout::Slides));
+    assert!(images(&pdf).is_empty());
+    assert!(pdf.len() > empty.len(), "the placeholder is drawn");
+}
+
 #[test]
 fn links_and_bookmarks_survive_vector_export() {
     let mut p = deck(3);

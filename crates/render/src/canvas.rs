@@ -244,3 +244,17 @@ pub(crate) fn pixels(ctx: &mut dyn Canvas, bounds: Rect, draw: &mut dyn FnMut(&m
         rasterize(ctx, fb, bounds, draw);
     }
 }
+
+/// The placeholder drawn for a picture that can't be shown: a grey box with a cross.
+pub fn missing_picture(ctx: &mut dyn Canvas, b: Rect) {
+    ctx.set_paint(peniko::Color::from_rgba8(230, 230, 230, 255));
+    ctx.fill_rect(&b);
+    ctx.set_paint(peniko::Color::from_rgba8(160, 160, 160, 255));
+    ctx.set_stroke(kurbo::Stroke::new(1.0));
+    let mut p = BezPath::new();
+    p.move_to((b.x0, b.y0));
+    p.line_to((b.x1, b.y1));
+    p.move_to((b.x1, b.y0));
+    p.line_to((b.x0, b.y1));
+    ctx.stroke_path(&p);
+}

@@ -181,7 +181,7 @@ pub fn circle_gradient(focus: [f64; 4], bounds: Rect, tile: Rect, stops: Vec<(f3
 /// GIF shows its frame at `gif_time` seconds.
 pub fn picture(ctx: &mut dyn Canvas, pres: &Presentation, pf: &PictureFill, bounds: Rect, m: Affine, gif_time: Option<f64>) {
     let Some(item) = pres.media(pf.media) else {
-        missing(ctx, bounds);
+        canvas::missing_picture(ctx, bounds);
         return;
     };
     let fallback = ctx.fallback();
@@ -213,7 +213,7 @@ pub fn picture(ctx: &mut dyn Canvas, pres: &Presentation, pf: &PictureFill, boun
             let want = (dest.width().abs().max(dest.height().abs()) * px_scale).max(1.0);
             let frame = gif_time.and_then(|t| images::gif_pixmap(&item.data, &pf.adjust, t));
             let Some(pm) = frame.or_else(|| images::decode_for(&item.data, want, &pf.adjust)) else {
-                missing(ctx, bounds);
+                canvas::missing_picture(ctx, bounds);
                 return;
             };
             CanvasImage { width: pm.width() as f64, height: pm.height() as f64, pixmap: Some(pm), encoded: None }
@@ -267,7 +267,7 @@ pub fn picture(ctx: &mut dyn Canvas, pres: &Presentation, pf: &PictureFill, boun
         let first = |o: f64, t: f64, lo: f64| ((lo - o) / t).floor() as i64;
         let (i0, j0) = (first(o.x, tile_w, bounds.x0), first(o.y, tile_h, bounds.y0));
         let (i1, j1) = (first(o.x, tile_w, bounds.x1), first(o.y, tile_h, bounds.y1));
-        let count = (i1 - i0 + 1).saturating_mul(j1 - j0 + 1);
+        let count = i1.saturating_sub(i0).saturating_add(1).saturating_mul(j1.saturating_sub(j0).saturating_add(1));
         if !(0..=4000).contains(&count) {
             let area = m.transform_rect_bbox(bounds);
             let tile = |v: &mut vello_cpu::RenderContext, pre: Affine| {
@@ -334,19 +334,6 @@ fn draw_image(ctx: &mut dyn Canvas, image: &CanvasImage, iw: f64, ih: f64, dest:
     let t = m * Affine::translate(dest.origin().to_vec2()) * Affine::scale_non_uniform(dest.width() / iw, dest.height() / ih);
     ctx.set_transform(t);
     ctx.draw_image(image, alpha);
-}
-
-fn missing(ctx: &mut dyn Canvas, b: Rect) {
-    ctx.set_paint(peniko::Color::from_rgba8(230, 230, 230, 255));
-    ctx.fill_rect(&b);
-    ctx.set_paint(peniko::Color::from_rgba8(160, 160, 160, 255));
-    ctx.set_stroke(kurbo::Stroke::new(1.0));
-    let mut p = BezPath::new();
-    p.move_to((b.x0, b.y0));
-    p.line_to((b.x1, b.y1));
-    p.move_to((b.x1, b.y0));
-    p.line_to((b.x0, b.y1));
-    ctx.stroke_path(&p);
 }
 
 /// The speaker / film glyph on audio and video objects without a poster.

@@ -27,6 +27,8 @@ use crate::{tf, to_path};
 pub(crate) struct Cache {
     fonts: HashMap<u32, Font>,
     images: HashMap<usize, Option<Image>>,
+    /// The pixmaps `images` is keyed by, kept alive so a freed one's address is never reused as a key.
+    held: Vec<Box<dyn std::any::Any>>,
 }
 
 impl Cache {
@@ -45,6 +47,11 @@ impl Cache {
         let key = img.key();
         if key == 0 {
             return None;
+        }
+        if let Some(pm) = &img.pixmap
+            && !self.images.contains_key(&key)
+        {
+            self.held.push(Box::new(pm.clone()));
         }
         self.images
             .entry(key)
@@ -267,7 +274,12 @@ impl Canvas for PdfCanvas<'_, '_> {
     }
     fn draw_image(&mut self, img: &CanvasImage, alpha: f64) {
         let (Some(size), true) = (Size::from_wh(img.width as f32, img.height as f32), finite(self.t)) else { return };
-        let Some(image) = self.cache.image(img) else { return };
+        // A file that can't be embedded (a header that reads but data that doesn't) shows the
+        // missing-picture placeholder, as the pixel canvas does.
+        let Some(image) = self.cache.image(img) else {
+            deckcraft_render::missing_picture(self, Rect::new(0.0, 0.0, img.width, img.height));
+            return;
+        };
         self.s.push_transform(&tf(self.t));
         let faded = alpha < 0.999;
         if faded {
