@@ -604,21 +604,55 @@ fn fontconfig_dirs(text: &str, data_home: Option<&str>, home: Option<&std::path:
 /// axis settings.
 type Found = (u32, String, String, Vec<([u8; 4], f32)>);
 
+/// Maximum number of faces we enumerate from a single font collection.
+const MAX_COLLECTION_FACES: u32 = 256;
+/// Maximum collection entries inspected while looking for distinct table directories.
+const MAX_COLLECTION_ENTRIES_SCANNED: u32 = 16_384;
+/// Maximum named instances read from a single face.
+const MAX_NAMED_INSTANCES_PER_FACE: usize = 1024;
+
+fn distinct_face_indices(entries: impl IntoIterator<Item = (u32, u32)>) -> Vec<u32> {
+    let mut offsets = std::collections::HashSet::new();
+    let mut indices = Vec::with_capacity(MAX_COLLECTION_FACES as usize);
+    for (index, offset) in entries.into_iter().take(MAX_COLLECTION_ENTRIES_SCANNED as usize) {
+        if offsets.insert(offset) {
+            indices.push(index);
+            if indices.len() == MAX_COLLECTION_FACES as usize {
+                break;
+            }
+        }
+    }
+    indices
+}
+
+fn capped_named_instance_count(count: usize) -> usize {
+    count.min(MAX_NAMED_INSTANCES_PER_FACE)
+}
+
 /// Parse every face in `data` (a font file or collection); a variable font yields one face per
 /// named instance (InDesign lists them as styles).
 fn enumerate_faces(data: &[u8]) -> Vec<Found> {
-    let count = match FileRef::new(data) {
-        Ok(FileRef::Font(_)) => 1,
-        Ok(FileRef::Collection(c)) => c.len(),
-        Err(_) => 0,
+    let indices = match FileRef::new(data) {
+        Ok(FileRef::Font(_)) => vec![0],
+        Ok(FileRef::Collection(c)) => {
+            let entries = (0..c.len().min(MAX_COLLECTION_ENTRIES_SCANNED)).filter_map(|i| {
+                let start = 12usize.checked_add((i as usize).checked_mul(4)?)?;
+                let end = start.checked_add(4)?;
+                let offset = u32::from_be_bytes(data.get(start..end)?.try_into().ok()?);
+                Some((i, offset))
+            });
+            distinct_face_indices(entries)
+        }
+        Err(_) => Vec::new(),
     };
     let mut out = Vec::new();
-    for i in 0..count {
+    for i in indices {
         let Ok(f) = skrifa::FontRef::from_index(data, i) else { continue };
         let Some((family, style)) = face_names(&f) else { continue };
         let axes = f.axes();
         let mut named = Vec::new();
-        for ni in f.named_instances().iter() {
+        let instances = f.named_instances();
+        for ni in instances.iter().take(capped_named_instance_count(instances.len())) {
             let Some(style) = name(&f, &[ni.subfamily_name_id()]) else { continue };
             if named.iter().any(|(_, s, _): &(u32, String, _)| s.eq_ignore_ascii_case(&style)) {
                 continue;
@@ -1434,6 +1468,24 @@ mod font_dir_tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
+
+    #[test]
+    fn duplicate_collection_offsets_do_not_consume_face_cap() {
+        let mut entries = vec![(0, 7); MAX_COLLECTION_FACES as usize];
+        entries.extend((0..MAX_COLLECTION_FACES).map(|i| (i + MAX_COLLECTION_FACES, i + 8)));
+        let faces = distinct_face_indices(entries);
+        assert_eq!(faces.len(), MAX_COLLECTION_FACES as usize);
+        assert_eq!(faces.first(), Some(&0));
+        assert_eq!(faces.get(1), Some(&MAX_COLLECTION_FACES));
+        assert_eq!(faces.last(), Some(&(MAX_COLLECTION_FACES * 2 - 2)));
+    }
+
+    #[test]
+    fn named_instance_limit_is_bounded_per_face() {
+        assert_eq!(capped_named_instance_count(0), 0);
+        assert_eq!(capped_named_instance_count(MAX_NAMED_INSTANCES_PER_FACE), MAX_NAMED_INSTANCES_PER_FACE);
+        assert_eq!(capped_named_instance_count(MAX_NAMED_INSTANCES_PER_FACE + 1), MAX_NAMED_INSTANCES_PER_FACE);
+    }
 
     #[test]
     fn xdg_data_dirs_contribute_their_fonts_folders() {
