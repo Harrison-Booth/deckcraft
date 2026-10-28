@@ -55,6 +55,7 @@ pub(crate) fn glyph(face: &deckcraft_fonts::FontFace, gid: u32) -> Arc<BezPath> 
 }
 
 /// Draw a text body into shape space `m` within the text rect.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_text(ctx: &mut dyn Canvas, rctx: &Ctx, s: &Shape, body: &TextBody, tr: Rect, m: Affine, fields: &dyn Fields, prompt: Option<Rgba>) {
     let l = deckcraft_text::layout(rctx, s, body, &Opts { rect: tr, fields, prompt_color: prompt, no_shrink: false });
     draw_layout(ctx, &l, tr, m);

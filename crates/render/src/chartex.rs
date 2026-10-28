@@ -62,9 +62,23 @@ fn funnel(
         ctx.set_paint(color(series_color(rctx, c, 0), 1.0));
         ctx.fill_rect(&r);
         if let Some(name) = c.categories.get(i) {
-            label(ctx, rctx, m, name, Rect::new(area.x0, y, plot.x0 - base * 0.4, y + band), base, Align::Right, Anchor::Middle, text_col, false);
+            label(
+                ctx,
+                rctx,
+                m,
+                name,
+                Rect::new(area.x0, y, plot.x0 - base * 0.4, y + band),
+                crate::chart::LabelStyle { size: base, align: Align::Right, anchor: Anchor::Middle, col: text_col, bold: false },
+            );
         }
-        label(ctx, rctx, m, &value_label(*v), Rect::new(cx - 60.0, y, cx + 60.0, y + band), base, Align::Center, Anchor::Middle, Rgba::WHITE, false);
+        label(
+            ctx,
+            rctx,
+            m,
+            &value_label(*v),
+            Rect::new(cx - 60.0, y, cx + 60.0, y + band),
+            crate::chart::LabelStyle { size: base, align: Align::Center, anchor: Anchor::Middle, col: Rgba::WHITE, bold: false },
+        );
     }
 }
 
@@ -118,7 +132,20 @@ fn region_tiles(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: Re
             }
             let inner = t.inset(-base * 0.25);
             if inner.width() > base && inner.height() > base * 0.8 {
-                label(ctx, rctx, m, &text, inner, base * 0.9, Align::Center, Anchor::Middle, if dark { Rgba::WHITE } else { text_col }, false);
+                label(
+                    ctx,
+                    rctx,
+                    m,
+                    &text,
+                    inner,
+                    crate::chart::LabelStyle {
+                        size: base * 0.9,
+                        align: Align::Center,
+                        anchor: Anchor::Middle,
+                        col: if dark { Rgba::WHITE } else { text_col },
+                        bold: false,
+                    },
+                );
             }
         }
     }
@@ -136,9 +163,23 @@ fn region_tiles(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: Re
             ctx.fill_rect(&Rect::new(x0, bar.y0, x1.min(bar.x1), bar.y1));
         }
         let ly = Rect::new(bar.x0 - base * 8.0, bar.y0 - base * 0.2, bar.x0 - base * 0.4, bar.y1 + base * 0.2);
-        label(ctx, rctx, m, &c.data_label(s, min), ly, base, Align::Right, Anchor::Middle, text_col, false);
+        label(
+            ctx,
+            rctx,
+            m,
+            &c.data_label(s, min),
+            ly,
+            crate::chart::LabelStyle { size: base, align: Align::Right, anchor: Anchor::Middle, col: text_col, bold: false },
+        );
         let ry = Rect::new(bar.x1 + base * 0.4, bar.y0 - base * 0.2, bar.x1 + base * 8.0, bar.y1 + base * 0.2);
-        label(ctx, rctx, m, &c.data_label(s, max), ry, base, Align::Left, Anchor::Middle, text_col, false);
+        label(
+            ctx,
+            rctx,
+            m,
+            &c.data_label(s, max),
+            ry,
+            crate::chart::LabelStyle { size: base, align: Align::Left, anchor: Anchor::Middle, col: text_col, bold: false },
+        );
     }
     let note = Rect::new(area.x0, area.y1 - note_h, area.x1, area.y1);
     label(
@@ -147,11 +188,13 @@ fn region_tiles(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: Re
         m,
         "Map preview unavailable: regions shown as tiles",
         note,
-        base * 0.85,
-        Align::Center,
-        Anchor::Middle,
-        mix(text_col, Rgba::WHITE, 0.4),
-        false,
+        crate::chart::LabelStyle {
+            size: base * 0.85,
+            align: Align::Center,
+            anchor: Anchor::Middle,
+            col: mix(text_col, Rgba::WHITE, 0.4),
+            bold: false,
+        },
     );
 }
 
@@ -239,7 +282,14 @@ fn treemap(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: Rect, b
         }
         let inner = t.inset(-base * 0.3);
         if inner.width() > base && inner.height() > base {
-            label(ctx, rctx, m, &text, inner, base, Align::Left, Anchor::Top, Rgba::WHITE, false);
+            label(
+                ctx,
+                rctx,
+                m,
+                &text,
+                inner,
+                crate::chart::LabelStyle { size: base, align: Align::Left, anchor: Anchor::Top, col: Rgba::WHITE, bold: false },
+            );
         }
     }
 }
@@ -280,11 +330,7 @@ fn sunburst(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: Rect, 
                 m,
                 name,
                 Rect::new(lp.x - 50.0, lp.y - base, lp.x + 50.0, lp.y + base),
-                base,
-                Align::Center,
-                Anchor::Middle,
-                Rgba::WHITE,
-                false,
+                crate::chart::LabelStyle { size: base, align: Align::Center, anchor: Anchor::Middle, col: Rgba::WHITE, bold: false },
             );
         }
         a0 = a1;
@@ -335,7 +381,14 @@ fn tree_treemap(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: Re
                 }
                 let inner = t.inset(-base * 0.3);
                 if inner.width() > base && inner.height() > base {
-                    label(ctx, rctx, m, &text, inner, base * 0.9, Align::Left, Anchor::Top, Rgba::WHITE, false);
+                    label(
+                        ctx,
+                        rctx,
+                        m,
+                        &text,
+                        inner,
+                        crate::chart::LabelStyle { size: base * 0.9, align: Align::Left, anchor: Anchor::Top, col: Rgba::WHITE, bold: false },
+                    );
                 }
                 continue;
             }
@@ -346,7 +399,14 @@ fn tree_treemap(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: Re
             ctx.fill_rect(&t);
             if t.width() > base * 2.0 && banner > base * 0.8 {
                 let head = Rect::new(t.x0 + base * 0.3, t.y0, t.x1 - base * 0.3, t.y0 + banner);
-                label(ctx, rctx, m, &n.name, head, base, Align::Left, Anchor::Middle, Rgba::WHITE, true);
+                label(
+                    ctx,
+                    rctx,
+                    m,
+                    &n.name,
+                    head,
+                    crate::chart::LabelStyle { size: base, align: Align::Left, anchor: Anchor::Middle, col: Rgba::WHITE, bold: true },
+                );
             }
             let inner = Rect::new(t.x0 + 1.0, t.y0 + banner, t.x1 - 1.0, t.y1 - 1.0);
             let k = lighten(fill, 0.12 * (depth + 1) as f64);
@@ -428,11 +488,7 @@ fn tree_sunburst(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, area: R
                     m,
                     &n.name,
                     Rect::new(lp.x - half, lp.y - base, lp.x + half, lp.y + base),
-                    base * 0.9,
-                    Align::Center,
-                    Anchor::Middle,
-                    Rgba::WHITE,
-                    false,
+                    crate::chart::LabelStyle { size: base * 0.9, align: Align::Center, anchor: Anchor::Middle, col: Rgba::WHITE, bold: false },
                 );
             }
             if !n.children.is_empty() {

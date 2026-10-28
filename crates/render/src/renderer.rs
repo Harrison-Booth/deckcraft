@@ -592,6 +592,7 @@ impl Renderer {
 
     /// A shape's effects, fill and outline.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::cognitive_complexity)]
     fn geometry_art(
         &mut self,
         ctx: &mut dyn Canvas,
@@ -987,6 +988,7 @@ impl Renderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn effects_below(
         &mut self,
         ctx: &mut RenderContext,

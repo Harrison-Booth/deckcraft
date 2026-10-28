@@ -149,18 +149,20 @@ fn split_label(name: &str) -> String {
     }
 }
 
-pub(crate) fn label(
-    ctx: &mut dyn Canvas,
-    rctx: &Ctx,
-    m: Affine,
-    text: &str,
-    r: Rect,
-    size: f64,
-    align: Align,
-    anchor: Anchor,
-    col: Rgba,
-    bold: bool,
-) {
+pub(crate) struct LabelStyle {
+    pub(crate) size: f64,
+    pub(crate) align: Align,
+    pub(crate) anchor: Anchor,
+    pub(crate) col: Rgba,
+    pub(crate) bold: bool,
+}
+
+pub(crate) fn label(ctx: &mut dyn Canvas, rctx: &Ctx, m: Affine, text: &str, r: Rect, style: LabelStyle) {
+    label_custom(ctx, rctx, m, text, r, style.size, style.align, style.anchor, style.col, style.bold);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn label_custom(ctx: &mut dyn Canvas, rctx: &Ctx, m: Affine, text: &str, r: Rect, size: f64, align: Align, anchor: Anchor, col: Rgba, bold: bool) {
     let mut body = TextBody::from_text(text);
     body.body.inset_l = Some(0.0);
     body.body.inset_r = Some(0.0);
@@ -264,7 +266,7 @@ pub fn default_text_color() -> ColorRef {
     ColorRef::scheme(SchemeSlot::Tx1).with(ColorTransform::LumMod(65000)).with(ColorTransform::LumOff(35000))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::cognitive_complexity, clippy::too_many_arguments)]
 fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h: f64, boxes: Option<&crate::chartex::Boxes>) {
     // Text without a colour of its own takes PowerPoint's default, the theme's text colour at
     // lumMod 65 % / lumOff 35 % (595959 on a light theme, light grey on a dark one), so a chart
@@ -291,7 +293,18 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
     let title_size = c.title_size.unwrap_or(base * 1.4);
     let mut area = Rect::new(w * 0.04, h * 0.04, w * 0.96, h * 0.96);
     if let Some(t) = &c.title {
-        label(ctx, rctx, m, t, Rect::new(0.0, area.y0, w, area.y0 + title_size * 1.3), title_size, Align::Center, Anchor::Top, text_col, false);
+        label_custom(
+            ctx,
+            rctx,
+            m,
+            t,
+            Rect::new(0.0, area.y0, w, area.y0 + title_size * 1.3),
+            title_size,
+            Align::Center,
+            Anchor::Top,
+            text_col,
+            false,
+        );
         area.y0 += title_size * 1.7;
     }
     let pie = matches!(c.kind, ChartType::Pie | ChartType::Doughnut);
@@ -351,7 +364,18 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
                 ctx.stroke_path(&key.to_path(0.1));
             }
             let tw = name.chars().count() as f64 * base * 0.55 + base;
-            label(ctx, rctx, m, name, Rect::new(x + base, y, x + base + tw, y + base * 1.3), base, Align::Left, Anchor::Middle, text_col, false);
+            label_custom(
+                ctx,
+                rctx,
+                m,
+                name,
+                Rect::new(x + base, y, x + base + tw, y + base * 1.3),
+                base,
+                Align::Left,
+                Anchor::Middle,
+                text_col,
+                false,
+            );
             if vertical {
                 y += base * 1.5;
             } else {
@@ -392,7 +416,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
             if c.series_data_labels(s) {
                 let mid = a0 + sweep / 2.0;
                 let lp = Point::new(cen.x + r * 0.65 * mid.cos(), cen.y + r * 0.65 * mid.sin());
-                label(
+                label_custom(
                     ctx,
                     rctx,
                     m,
@@ -434,14 +458,14 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
     let band_h = base * 1.6;
     if let Some(t) = bottom_title.filter(|t| !t.is_empty()) {
         let r = Rect::new(area.x0, area.y1 - band_h, area.x1, area.y1);
-        label(ctx, rctx, m, t, r, base, Align::Center, Anchor::Bottom, text_col, true);
+        label_custom(ctx, rctx, m, t, r, base, Align::Center, Anchor::Bottom, text_col, true);
         area.y1 -= band_h + base * 0.3;
     }
     if let Some(t) = left_title.filter(|t| !t.is_empty()) {
         let (cx, cy) = (area.x0 + band_h / 2.0, (area.y0 + area.y1) / 2.0);
         let turned = m * Affine::translate((cx, cy)) * Affine::rotate(-std::f64::consts::FRAC_PI_2);
         let half = area.height() / 2.0;
-        label(ctx, rctx, turned, t, Rect::new(-half, -band_h / 2.0, half, band_h / 2.0), base, Align::Center, Anchor::Middle, text_col, true);
+        label_custom(ctx, rctx, turned, t, Rect::new(-half, -band_h / 2.0, half, band_h / 2.0), base, Align::Center, Anchor::Middle, text_col, true);
         area.x0 += band_h + base * 0.3;
     }
     // As many major units as the value axis has room for labels (PowerPoint's automatic unit).
@@ -524,7 +548,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
         if horiz {
             g.move_to((pos, plot.y0));
             g.line_to((pos, plot.y1));
-            label(
+            label_custom(
                 ctx,
                 rctx,
                 m,
@@ -539,7 +563,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
         } else {
             g.move_to((plot.x0, pos));
             g.line_to((plot.x1, pos));
-            label(
+            label_custom(
                 ctx,
                 rctx,
                 m,
@@ -563,7 +587,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
     if let Some(sc) = second.filter(|_| !c.y2_hidden) {
         for v in ticks(sc) {
             let pos = to_axis(true, v);
-            label(
+            label_custom(
                 ctx,
                 rctx,
                 m,
@@ -595,7 +619,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
     if let Some(sc) = xscale {
         for v in ticks(sc) {
             let pos = plot.x0 + (v - sc.0) / positive_span(sc.1 - sc.0) * plot.width();
-            label(
+            label_custom(
                 ctx,
                 rctx,
                 m,
@@ -614,7 +638,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
     for (i, name) in c.categories.iter().enumerate().filter(|_| xscale.is_none()) {
         let mid = if horiz { plot.y0 + band * (slot(i) + 0.5) } else { plot.x0 + band * (slot(i) + 0.5) };
         if horiz {
-            label(
+            label_custom(
                 ctx,
                 rctx,
                 m,
@@ -628,7 +652,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
             );
         } else {
             let text = if wraps { split_label(name) } else { name.clone() };
-            label(
+            label_custom(
                 ctx,
                 rctx,
                 m,
@@ -744,7 +768,7 @@ fn draw_inner(ctx: &mut dyn Canvas, rctx: &Ctx, c: &Chart, m: Affine, w: f64, h:
                     } else {
                         Rect::new(r.x0 - 10.0, r.y0 - base * 1.4, r.x1 + 10.0, r.y0)
                     };
-                    label(
+                    label_custom(
                         ctx,
                         rctx,
                         m,
@@ -945,6 +969,7 @@ fn forecast_pad(c: &Chart) -> (f64, f64) {
 
 const TREND_INK: [Rgba; 4] = [Rgba::rgb(0x22, 0x22, 0x22), Rgba::rgb(0xB0, 0x30, 0x30), Rgba::rgb(0x1A, 0x5C, 0x7A), Rgba::rgb(0xA0, 0x68, 0x00)];
 
+#[allow(clippy::too_many_arguments)]
 fn map_xy(
     plot: Rect,
     band: f64,
@@ -1008,6 +1033,7 @@ fn clip_seg(a: Point, b: Point, r: Rect) -> Option<(Point, Point)> {
     Some((Point::new(a.x + t0 * dx, a.y + t0 * dy), Point::new(a.x + t1 * dx, a.y + t1 * dy)))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_trendlines(
     ctx: &mut dyn Canvas,
     rctx: &Ctx,
@@ -1113,7 +1139,7 @@ fn draw_trendlines(
             ctx.set_transform(m);
             ctx.set_paint(color(Rgba::WHITE, 1.0));
             ctx.fill_rect(&Rect::new(x, y, x + box_w, y + box_h));
-            label(
+            label_custom(
                 ctx,
                 rctx,
                 m,
