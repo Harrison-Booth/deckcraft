@@ -146,9 +146,13 @@ fn time_ms(runs: usize, mut f: impl FnMut() -> Result<(), String>) -> Result<(f6
         f()?;
         ms.push(t.elapsed().as_secs_f64() * 1000.0);
     }
+    Ok(summarize_ms(ms))
+}
+
+/// Summarize one population of measurements; each maximum must come from that population.
+fn summarize_ms(mut ms: Vec<f64>) -> (f64, f64) {
     ms.sort_by(f64::total_cmp);
-    let median = ms.get(ms.len() / 2).copied().unwrap_or(0.0);
-    Ok((median, ms.last().copied().unwrap_or(0.0)))
+    (ms.get(ms.len() / 2).copied().unwrap_or(0.0), ms.last().copied().unwrap_or(0.0))
 }
 
 /// Peak resident memory of this process in MiB (Linux `VmHWM`); `None` elsewhere.
@@ -210,9 +214,13 @@ fn bench(args: &[String]) -> Result<(), String> {
         ("open .pptx", time_ms(runs, || open_presentation("bench.pptx", &pptx).map(|_| ()).map_err(e))?),
         ("export .pdf", time_ms(runs, || save_bytes(&doc, "pdf").map(|_| ()).map_err(e))?),
     ];
-    let render_total: f64 = per_slide.iter().map(|m| m.0).sum();
-    let render_max = per_slide.iter().map(|m| m.1).fold(0.0, f64::max);
-    steps.insert(1, ("render all slides (1×)", (render_total, render_max)));
+    let render_all = time_ms(runs, || {
+        for i in 0..slides {
+            deckcraft_engine::render::render_slide(&doc, i, &opts);
+        }
+        Ok(())
+    })?;
+    steps.insert(1, ("render all slides (1×)", render_all));
     let peak = peak_rss_mib();
     if as_json {
         let v = json!({
@@ -661,6 +669,16 @@ mod tests {
 
     fn args(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn timing_summary_keeps_median_and_max_from_one_population() {
+        let slide_medians = [8.99, 16.565];
+        let whole_deck = summarize_ms(vec![17.0, 18.0, 16.0]);
+        assert_eq!(whole_deck, (17.0, 18.0));
+        assert!(whole_deck.1 >= whole_deck.0);
+        assert!(slide_medians.iter().sum::<f64>() > whole_deck.1, "fixture must expose summing independent slide medians");
+        assert_eq!(summarize_ms(vec![]), (0.0, 0.0));
     }
 
     #[test]
