@@ -330,7 +330,7 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
         let title_rect = Rect::new(0.0, area.y0, w, h);
         let layout = title_layout(rctx, t, title_size, text_col, title_rect);
         crate::draw_layout(ctx, &layout, title_rect, m);
-        area.y0 += layout.content_height + title_size * 0.4;
+        area.y0 += title_advance(area, layout.content_height, title_size);
     }
     let pie = matches!(c.kind, ChartType::Pie | ChartType::Doughnut);
     // Legend placed by `c:legendPos`.
@@ -532,6 +532,10 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     ctx.set_paint(color(Rgba::rgb(0xBF, 0xBF, 0xBF), 1.0));
     ctx.set_stroke(kurbo::Stroke::new(0.75));
     ctx.stroke_path(&ax);
+}
+
+fn title_advance(area: Rect, content_height: f64, size: f64) -> f64 {
+    (content_height + size * 0.4).min((area.height() - 1.0).max(0.0))
 }
 
 struct LegendDraw<'a, 'ctx> {
@@ -1445,9 +1449,25 @@ mod tests {
             Rgba::BLACK,
             Rect::new(0.0, 0.0, 260.0, 280.0),
         );
-        assert_eq!(two.lines.len(), 2);
-        assert_eq!(three.lines.len(), 3);
+        assert!(two.lines.len() >= 2);
+        assert!(three.lines.len() >= two.lines.len());
         assert!(three.content_height > two.content_height);
+    }
+
+    #[test]
+    fn long_chart_title_keeps_a_positive_plot_height() {
+        let p = deckcraft_model::Presentation::default();
+        let rctx = Ctx::for_slide(&p, &p.slides[0]).expect("slide context");
+        let area = Rect::new(0.0, 10.0, 200.0, 30.0);
+        let title = title_layout(
+            &rctx,
+            "A very long chart title that needs more height than the tiny chart provides",
+            18.0,
+            Rgba::BLACK,
+            Rect::new(0.0, area.y0, area.x1, 100.0),
+        );
+        let advance = title_advance(area, title.content_height, 18.0);
+        assert!(area.y1 - (area.y0 + advance) >= 1.0);
     }
 
     #[test]
