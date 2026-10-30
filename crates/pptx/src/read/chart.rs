@@ -134,18 +134,21 @@ fn chart_within(root: &El, mut budget: usize) -> Option<Chart> {
             "outer" => ManualLayoutTarget::Outer,
             _ => return None,
         };
-        mode("xMode", "factor")?;
-        mode("yMode", "factor")?;
+        let x_edge = mode("xMode", "factor")?;
+        let y_edge = mode("yMode", "factor")?;
         let w_edge = mode("wMode", "factor")?;
         let h_edge = mode("hMode", "factor")?;
         let x = layout.child("x")?.f64("val")?;
         let y = layout.child("y")?.f64("val")?;
         let w = layout.child("w")?.f64("val")?;
         let h = layout.child("h")?.f64("val")?;
+        // The model stores absolute chart-frame positions. Factor positions are
+        // relative to an automatic position, which is only available in rendering.
+        if !x_edge || !y_edge {
+            return None;
+        }
         // In edge mode w/h name the far edge; the model stores dimensions. x/y
-        // are coordinates for edge mode and offsets for factor mode. The model
-        // uses normalized chart coordinates for both, so those offsets remain
-        // relative values while the dimensions are converted here.
+        // are absolute chart-frame coordinates.
         let manual = ManualLayout { x, y, width: if w_edge { w - x } else { w }, height: if h_edge { h - y } else { h }, target };
         manual.is_valid().then_some(manual)
     });
@@ -898,11 +901,13 @@ mod tests {
             read_chart_xml(xml(inner).as_bytes()).unwrap().manual_layout,
             Some(ManualLayout { x: 0.1, y: 0.2, width: 0.6, height: 0.7, target: ManualLayoutTarget::Inner })
         );
-        let factor = r#"<c:manualLayout><c:x val="0.1"/><c:y val="0.2"/><c:w val="0.6"/><c:h val="0.7"/></c:manualLayout>"#;
+        let factor_dimensions = r#"<c:manualLayout><c:xMode val="edge"/><c:yMode val="edge"/><c:x val="0.1"/><c:y val="0.2"/><c:w val="0.6"/><c:h val="0.7"/></c:manualLayout>"#;
         assert_eq!(
-            read_chart_xml(xml(factor).as_bytes()).unwrap().manual_layout,
+            read_chart_xml(xml(factor_dimensions).as_bytes()).unwrap().manual_layout,
             Some(ManualLayout { x: 0.1, y: 0.2, width: 0.6, height: 0.7, target: ManualLayoutTarget::Outer })
         );
+        let factor = r#"<c:manualLayout><c:x val="0.1"/><c:y val="0.2"/><c:w val="0.6"/><c:h val="0.7"/></c:manualLayout>"#;
+        assert_eq!(read_chart_xml(xml(factor).as_bytes()).unwrap().manual_layout, None);
         for invalid in [
             r#"<c:manualLayout><c:x val="-0.1"/><c:y val="0"/><c:w val="0.5"/><c:h val="0.5"/></c:manualLayout>"#,
             r#"<c:manualLayout><c:x val="0.8"/><c:y val="0"/><c:w val="0.5"/><c:h val="0.5"/></c:manualLayout>"#,

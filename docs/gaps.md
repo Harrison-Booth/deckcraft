@@ -181,7 +181,7 @@ Detail in [file-format-parity.md](file-format-parity.md).
   (`corpus_charts.rs`) and are drawn: linear, exponential, logarithmic, polynomial, power and
   moving average, with forecast and the equation and R² label. Manual plot-area rectangles now
   import, render and write back, converting edge-mode widths and heights before validation and
-  using the inner target for the data plot and its axis titles; invalid values use automatic layout.
+  using the inner target for the data plot; unsupported factor positions and invalid values use automatic layout.
   A moving average is drawn with
   neither label. A combo chart's secondary value axis is read (`y2_*`,
   `Series.secondary_axis`) and is not written back when the chart is rebuilt.
