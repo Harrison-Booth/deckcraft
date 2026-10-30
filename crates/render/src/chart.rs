@@ -329,8 +329,13 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     if let Some(t) = &c.title {
         let title_rect = Rect::new(0.0, area.y0, w, h);
         let layout = title_layout(rctx, t, title_size, text_col, title_rect);
+        let advance = title_advance(area, layout.content_height, title_size);
+        let title_clip = Rect::new(0.0, area.y0, w, area.y0 + advance);
+        ctx.set_transform(m);
+        ctx.push_clip_layer(&title_clip.to_path(0.1));
         crate::draw_layout(ctx, &layout, title_rect, m);
-        area.y0 += title_advance(area, layout.content_height, title_size);
+        ctx.pop_layer();
+        area.y0 += advance;
     }
     let pie = matches!(c.kind, ChartType::Pie | ChartType::Doughnut);
     // Legend placed by `c:legendPos`.

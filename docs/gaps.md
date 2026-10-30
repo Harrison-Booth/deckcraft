@@ -179,8 +179,8 @@ Detail in [file-format-parity.md](file-format-parity.md).
   or lines), stock charts as high-low lines with close dashes or up/down bars and saved as
   `c:stockChart`, and combo charts start as columns with a line. Trendlines round-trip
   (`corpus_charts.rs`) and are drawn: linear, exponential, logarithmic, polynomial, power and
-  moving average, with forecast and the equation and R² label. Long chart titles wrap while leaving
-  a positive minimum plot height. A moving average is drawn with
+  moving average, with forecast and the equation and R² label. Long chart titles wrap, are clipped
+  to their reserved area and leave a positive minimum plot height. A moving average is drawn with
   neither label. A combo chart's secondary value axis is read (`y2_*`,
   `Series.secondary_axis`) and is not written back when the chart is rebuilt.
   An unchanged chart's embedded workbook now survives save (#335); editing the chart still
@@ -369,7 +369,7 @@ Detail in [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-30 | trivial | Chart titles wrap without consuming the plot area; title line-count checks tolerate font metric differences |
+| 2026-10-30 | trivial | Chart titles wrap and clip to their reserved area while leaving a positive minimum plot height; line-count checks tolerate font metrics |
 | 2026-10-28 | trivial | Automatic lists now run independently of Replace text as you type; proofing gap description updated |
 | 2026-10-27 | minor | Refreshed against merged PRs: removed the Morph alignment entry (#67 merged 2026-10-14); #77 (animation rewind, PR #83) is fixed, leaving #74 in the round-trip gap; #75 was closed unmerged, so #60 stays open with no fix PR; #53 is closed and the image-paste gap is now Windows #1414; Reuse Slides (#1103) and Compare reject (#850) noted in the smaller rows; the duplicate header line is gone |
 | 2026-10-25 | trivial | New entries: copying text and cell ranges (no media, no table), a control-server timing test that may fail under load; Proofing notes that automatic lists follow Replace text as you type and that Backspace puts the typed lead back |
