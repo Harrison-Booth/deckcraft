@@ -24,6 +24,7 @@ pub(super) fn animations(app: &mut SlideApp, ui: &mut Ui) {
     group(ui, |ui| {
         let quick: Vec<_> = deckcraft_model::anim::ANIMATIONS
             .iter()
+            .filter(|a| deckcraft_anim::supports_animation_playback(a.0, a.2))
             .filter(|a| {
                 matches!(
                     a.0,
@@ -66,7 +67,8 @@ pub(super) fn animations(app: &mut SlideApp, ui: &mut Ui) {
             {
                 ui.label(egui::RichText::new(label).font(theme::bold(12.0)));
                 ui.horizontal_wrapped(|ui| {
-                    for a in deckcraft_model::anim::ANIMATIONS.iter().filter(|a| a.2 == cls) {
+                    for a in deckcraft_model::anim::ANIMATIONS.iter().filter(|a| a.2 == cls && deckcraft_anim::supports_animation_playback(a.0, a.2))
+                    {
                         let (r, resp) = ui.allocate_exact_size(vec2(56.0, 54.0), Sense::click());
                         if resp.hovered() {
                             ui.painter().rect_filled(r, CornerRadius::same(4), Tokens::get(ui.ctx()).hover);
@@ -103,24 +105,32 @@ pub(super) fn animations(app: &mut SlideApp, ui: &mut Ui) {
     });
     group(ui, |ui| {
         let r = big_button(ui, Icon::AddAnimation, "Add\nAnimation", has_sel);
+        // Every effect in one column is taller than a 1440p screen, so cap the height and scroll (#1370).
+        // The menu opens under the title bar and the ribbon; keep that chrome out of the cap.
+        let max_h = (r.ctx.viewport_rect().height() - 160.0).max(120.0);
         egui::Popup::menu(&r).width(260.0).show(|ui| {
-            for a in deckcraft_model::anim::ANIMATIONS.iter().filter(|a| a.2 != AnimClass::Media) {
-                if ui
-                    .button(format!(
-                        "{} — {}",
-                        a.1,
-                        match a.2 {
-                            AnimClass::Entrance => "Entrance",
-                            AnimClass::Emphasis => "Emphasis",
-                            AnimClass::Exit => "Exit",
-                            _ => "Motion",
-                        }
-                    ))
-                    .clicked()
+            egui::ScrollArea::vertical().id_salt("add_animation").max_height(max_h).show(ui, |ui| {
+                for a in deckcraft_model::anim::ANIMATIONS
+                    .iter()
+                    .filter(|a| a.2 != AnimClass::Media && deckcraft_anim::supports_animation_playback(a.0, a.2))
                 {
-                    run(app, "animation.add", json!({"effect": a.0, "class": a.2.xml()}));
+                    if ui
+                        .button(format!(
+                            "{} — {}",
+                            a.1,
+                            match a.2 {
+                                AnimClass::Entrance => "Entrance",
+                                AnimClass::Emphasis => "Emphasis",
+                                AnimClass::Exit => "Exit",
+                                _ => "Motion",
+                            }
+                        ))
+                        .clicked()
+                    {
+                        run(app, "animation.add", json!({"effect": a.0, "class": a.2.xml()}));
+                    }
                 }
-            }
+            });
         });
         big(app, ui, Icon::AnimationPane, "Animation\nPane", "view.pane", json!({"pane": "animation"}));
         let r = big_button(ui, Icon::Trigger, "Trigger", cur.is_some());

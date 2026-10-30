@@ -369,6 +369,10 @@ pub fn fallback_effect(class: AnimClass) -> &'static str {
 
 /// The preset id to write for an animation.
 pub fn preset_for(a: &deckcraft_model::Animation) -> u32 {
+    // Before preset 7 was identified as Crawl, older files could store Fade with that ID.
+    if a.class == AnimClass::Entrance && a.effect == "fade" && a.preset_id == Some(7) {
+        return 7;
+    }
     // Float Down is PowerPoint's preset 47 (Float Up is 42).
     if matches!(a.effect.as_str(), "float" | "floatOut") && a.option == "d" {
         return 47;
@@ -466,5 +470,28 @@ mod tests {
         assert_eq!(option_from_subtype("fade", 0), "");
         assert_eq!(effect_for_preset(AnimClass::Entrance, 2), Some("fly"));
         assert_eq!(effect_for_preset(AnimClass::Emphasis, 8), Some("spin"));
+    }
+
+    #[test]
+    fn legacy_fade_keeps_its_preset_id() {
+        let legacy = deckcraft_model::Animation { class: AnimClass::Entrance, effect: "fade".into(), preset_id: Some(7), ..Default::default() };
+        assert_eq!(preset_for(&legacy), 7);
+
+        let current = deckcraft_model::Animation { class: AnimClass::Entrance, effect: "fade".into(), ..Default::default() };
+        assert_eq!(preset_for(&current), 10);
+
+        let other = deckcraft_model::Animation { class: AnimClass::Entrance, effect: "fly".into(), preset_id: Some(7), ..Default::default() };
+        assert_eq!(preset_for(&other), 2);
+    }
+
+    /// PowerPoint's own ids: Darken is 24 and Desaturate 25 (read back from its saved file).
+    #[test]
+    fn darken_and_desaturate_use_powerpoints_ids() {
+        assert_eq!(effect_for_preset(AnimClass::Emphasis, 24), Some("darken"));
+        assert_eq!(effect_for_preset(AnimClass::Emphasis, 25), Some("desaturate"));
+        for (effect, id) in [("darken", 24), ("desaturate", 25)] {
+            let a = deckcraft_model::Animation { class: AnimClass::Emphasis, effect: effect.into(), ..Default::default() };
+            assert_eq!(preset_for(&a), id, "{effect}");
+        }
     }
 }
