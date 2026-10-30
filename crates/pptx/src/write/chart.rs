@@ -657,6 +657,9 @@ pub fn chart_xml(c: &Chart) -> (Vec<u8>, bool) {
                 deckcraft_model::chart::ManualLayoutTarget::Outer => "outer",
             },
         );
+        // The model stores absolute x/y positions and factor-based dimensions.
+        w.val("c:xMode", "edge");
+        w.val("c:yMode", "edge");
         for (tag, value) in [("c:x", layout.x), ("c:y", layout.y), ("c:w", layout.width), ("c:h", layout.height)] {
             w.val(tag, fmt_num(value));
         }
