@@ -59,8 +59,8 @@ perspective-correct subdivided meshes.
 | Media (Play, Pause, Stop) | 3 (+ Seek) | 3 | Seek, bookmarks as triggers |
 
 The catalog has 173 preset IDs, including 66 newly captured effects. Only effects with
-implemented slideshow playback are shown in the picker; other entries remain available for PPTX
-round trips.
+implemented slideshow playback are shown in the picker; the other entries remain in the catalog
+for imported documents.
 
 By how often people use them, the effects present cover nearly all real decks (Appear, Fade, Fly
 In, Wipe, Zoom, Float In, Grow/Shrink, Pulse, Spin, motion lines): weighted, ~85% of use; by count,
