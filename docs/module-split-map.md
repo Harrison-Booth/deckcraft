@@ -16,8 +16,9 @@ To find the exact new home of one function: `git grep -n 'fn name' origin/main -
 | `engine/src/cmd/mod.rs` | `engine/src/cmd.rs` |
 | `opus/src/celt/mod.rs`, `opus/src/silk/mod.rs` | `opus/src/celt.rs`, `opus/src/silk.rs` |
 | `pptx/src/read/mod.rs`, `pptx/src/write/mod.rs` | `pptx/src/read.rs`, `pptx/src/write.rs` |
+| `ui-egui/src/selpane.rs` | `ui-egui/src/panels/selpane.rs` |
 | `ui-egui/src/backstage_tests.rs` | `ui-egui/src/backstage/tests.rs` |
-| `ui-egui/src/selpane_tests.rs`, `sorter_tests.rs` | `ui-egui/src/panels/selpane/ui_tests.rs`, `ui-egui/src/sorter/ui_tests.rs` |
+| `ui-egui/src/selpane_tests.rs`, `ui-egui/src/sorter_tests.rs` | `ui-egui/src/panels/selpane/ui_tests.rs`, `ui-egui/src/sorter/ui_tests.rs` |
 
 `ui-egui/src` files moved into a folder: `guides_tests`, `preview`, `ruler_tests`, `squiggles` →
 `canvas/`; `columns_dialog_tests`, `credits`, `font_dialog_tests`, `paragraph_dialog_tests`,
