@@ -339,7 +339,10 @@ fn options(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn clear(s: &mut Session, p: &Value) -> Result<Value> {
-    let i = usize_param(p, "index").unwrap_or(s.doc()?.selection.slide);
+    let i = match opt_usize_param(p, "index", "animation.clear")? {
+        Some(i) => i,
+        None => s.doc()?.selection.slide,
+    };
     s.edit(|doc, _| {
         if let Some(sl) = doc.slides.get_mut(i) {
             Arc::make_mut(sl).animations.clear();
@@ -350,7 +353,13 @@ fn clear(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn list(_s: &mut Session, _p: &Value) -> Result<Value> {
-    Ok(Value::Array(ANIMATIONS.iter().map(|a| json!({"id": a.0, "label": a.1, "class": a.2.xml(), "options": a.5})).collect()))
+    Ok(Value::Array(
+        ANIMATIONS
+            .iter()
+            .filter(|a| deckcraft_anim::supports_animation_playback(a.0, a.2))
+            .map(|a| json!({"id": a.0, "label": a.1, "class": a.2.xml(), "options": a.5}))
+            .collect(),
+    ))
 }
 
 fn get(s: &mut Session, p: &Value) -> Result<Value> {
@@ -433,6 +442,29 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn animation_gallery_hides_effects_without_playback() {
+        let mut s = Session::with_new();
+        let gallery = s.execute("animation.list", &json!({})).unwrap();
+        let effects = gallery.as_array().unwrap();
+        assert!(effects.iter().any(|a| a["id"] == "fade"));
+        assert!(!effects.iter().any(|a| a["id"] == "crawl"));
+        assert!(!effects.iter().any(|a| a["id"] == "changeFontSize"));
+    }
+
+    #[test]
+    fn clear_rejects_invalid_index() {
+        let mut s = Session::with_new();
+        let r = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10.0, 10.0, 100.0, 100.0]})).unwrap();
+        let id = r.get("id").unwrap().as_u64().unwrap();
+        s.execute("animation.add", &json!({"effect": "fade", "class": "entrance", "ids": [id]})).unwrap();
+        for bad_index in [json!(-1), json!(1.5)] {
+            assert!(s.execute("animation.clear", &json!({"index": bad_index})).is_err());
+            let left = s.execute("animation.get", &json!({})).unwrap();
+            assert_eq!(left.as_array().unwrap().len(), 1);
+        }
+    }
 
     #[test]
     fn animation_painter_copies_effects_between_shapes() {

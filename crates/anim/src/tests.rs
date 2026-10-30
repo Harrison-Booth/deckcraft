@@ -195,6 +195,19 @@ fn every_animation_evaluates_finite() {
 }
 
 #[test]
+fn picker_support_only_effects_with_playback() {
+    use crate::supports_animation_playback;
+
+    assert!(supports_animation_playback("fade", AnimClass::Entrance));
+    assert!(supports_animation_playback("flyOut", AnimClass::Exit));
+    assert!(supports_animation_playback("spin", AnimClass::Emphasis));
+    assert!(supports_animation_playback("lines", AnimClass::Path));
+    assert!(!supports_animation_playback("crawl", AnimClass::Entrance));
+    assert!(!supports_animation_playback("changeFontSize", AnimClass::Emphasis));
+    assert!(!supports_animation_playback("media", AnimClass::Media));
+}
+
+#[test]
 fn fly_starts_off_slide() {
     let mut a = anim(1, AnimClass::Entrance, "fly", AnimStart::OnClick);
     a.option = "l".into();
@@ -761,6 +774,26 @@ fn show_skips_hidden_slides() {
     assert_eq!(s.next(&p), ShowAction::End);
     assert_eq!(s.next(&p), ShowAction::Exit);
     assert_eq!(s.goto(&p, 99), ShowAction::None);
+}
+
+#[test]
+fn show_remembers_a_slide_was_reached_by_going_back() {
+    // #1531: the UI plays the left slide's transition reversed only for Back.
+    let p = pres(3);
+    let mut s = ShowState::new(&p);
+    assert_eq!(s.next(&p), ShowAction::Slide(1));
+    assert!(!s.backward);
+    assert_eq!(s.prev(&p), ShowAction::Slide(0));
+    assert!(s.backward);
+    assert_eq!(s.next(&p), ShowAction::Slide(1));
+    assert!(!s.backward);
+    assert_eq!(s.goto(&p, 0), ShowAction::Slide(0));
+    assert!(!s.backward, "a jump is not Back");
+    // Back from the end screen shows the last slide again, without a transition to reverse.
+    assert_eq!(s.goto(&p, 2), ShowAction::Slide(2));
+    assert_eq!(s.next(&p), ShowAction::End);
+    assert_eq!(s.prev(&p), ShowAction::Slide(2));
+    assert!(!s.backward);
 }
 
 #[test]
