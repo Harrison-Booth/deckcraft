@@ -377,7 +377,8 @@ pub(crate) fn ok() -> Result<Value> {
 
 /// Parse a colour param: `"#RRGGBB"`, `"accent1"`…, or `{"scheme":"accent2","lumMod":75000}`.
 /// A preset or system colour keeps its base: `{"preset":"red"}`,
-/// `{"system":"windowText","last":"#000000"}`.
+/// `{"system":"windowText","last":"#000000"}`. Ordered transforms go in
+/// `"mods": [{"op":"tint","val":50000}, {"op":"lumMod","val":60000}]`; without it, keyed fields apply.
 pub(crate) fn color_param(p: &Value, key: &str) -> Option<deckcraft_model::ColorRef> {
     let v = p.get(key)?;
     color_value(v)
@@ -412,10 +413,14 @@ pub(crate) fn color_value(v: &Value) -> Option<deckcraft_model::ColorRef> {
             } else {
                 ColorRef::rgb(deckcraft_color::Rgba::from_hex(o.get("rgb").and_then(Value::as_str)?)?)
             };
-            for (k, val) in o {
-                if let Some(t) = deckcraft_color::ColorTransform::from_xml(k, val.as_i64().and_then(|x| i32::try_from(x).ok())) {
-                    c.mods.push(t);
-                }
+            if let Some(list) = o.get("mods").and_then(Value::as_array) {
+                c.mods.extend(list.iter().filter_map(|m| serde_json::from_value::<deckcraft_color::ColorTransform>(m.clone()).ok()));
+            } else {
+                c.mods.extend(o.iter().filter_map(|(k, val)| {
+                    let n = val.as_i64().and_then(|x| i32::try_from(x).ok());
+                    let t = deckcraft_color::ColorTransform::from_xml(k, n)?;
+                    (n.is_some() || t.value().is_none()).then_some(t)
+                }));
             }
             Some(c)
         }
@@ -515,8 +520,18 @@ pub(crate) fn current_shapes<'a>(doc: &'a deckcraft_model::Presentation, sel: &c
     }
 }
 
-pub(crate) fn current_names(doc: &deckcraft_model::Presentation, sel: &crate::Selection) -> std::collections::HashSet<String> {
-    current_shapes(doc, sel).map(|v| v.iter().map(|s| s.name.clone()).collect()).unwrap_or_default()
+/// Every name on the slide, group members included, and the number of shapes (which exceeds the
+/// number of names when two shapes share one).
+pub(crate) fn current_names(doc: &deckcraft_model::Presentation, sel: &crate::Selection) -> (std::collections::HashSet<String>, usize) {
+    let mut names = std::collections::HashSet::new();
+    let mut count = 0;
+    if let Some(v) = current_shapes(doc, sel) {
+        deckcraft_model::walk(v, &mut |sh, _| {
+            names.insert(sh.name.clone());
+            count += 1;
+        });
+    }
+    (names, count)
 }
 
 /// The command palette runs a command with `{}`. True when the params doc names a value that
@@ -678,5 +693,33 @@ mod tests {
             assert!(color_value(&json!({"preset": name})).is_some(), "{name}");
         }
         assert!(color_value(&json!({"system": "3dDkShadow", "last": "#000000"})).is_some());
+    }
+
+    #[test]
+    fn ordered_color_mods_use_the_color_transform_shape() {
+        use deckcraft_color::ColorTransform;
+        use serde_json::json;
+
+        let color = color_value(&json!({
+            "scheme": "accent1",
+            "mods": [{"op": "lumMod", "val": 60_000}, {"op": "lumOff", "val": 40_000}, {"op": "inv"}]
+        }));
+        assert_eq!(color.map(|c| c.mods), Some(vec![ColorTransform::LumMod(60_000), ColorTransform::LumOff(40_000), ColorTransform::Inv]));
+    }
+
+    #[test]
+    fn invalid_keyed_color_mods_are_skipped_not_zeroed() {
+        use deckcraft_color::ColorTransform;
+        use serde_json::json;
+
+        for bad in [json!("75000"), json!(75000.0), json!(0.75), json!(3_000_000_000i64)] {
+            let color = color_value(&json!({"scheme": "accent1", "lumMod": bad}));
+            assert_eq!(color.map(|c| c.mods), Some(vec![]), "{bad}");
+        }
+        let color = color_value(&json!({"scheme": "accent1", "lumMod": 75_000, "inv": null}));
+        let mods = color.map(|c| c.mods).unwrap_or_default();
+        assert_eq!(mods.len(), 2);
+        assert!(mods.contains(&ColorTransform::LumMod(75_000)));
+        assert!(mods.contains(&ColorTransform::Inv));
     }
 }

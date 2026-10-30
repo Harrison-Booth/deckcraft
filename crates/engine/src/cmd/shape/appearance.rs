@@ -1,7 +1,7 @@
 use super::{
     ColorRef, ColorTransform, Dash, Effects, Fill, Geom, Glow, Gradient, GradientShape, GradientStop, Line, LineEnd, PictureFill, PictureMode,
     Reflection, Result, Rgba, SchemeSlot, Session, Shadow, ShapeStyle, Value, apply_fill, bad, bool_or, color_param, color_value, edit_geometry,
-    edit_shapes, f64_param, inherited_fills, json, requested_fill, str_param, usize_param,
+    edit_shapes, f64_param, inherited_fills, json, requested_fill, str_param, targets, usize_param,
 };
 
 pub(super) fn adjust(s: &mut Session, p: &Value) -> Result<Value> {
@@ -74,7 +74,7 @@ pub(super) fn change(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// `{stops: [[pos 0–1, color], …], kind?: linear|radial|rectangular|path, angle?: deg (linear),
 /// focus?: [l, t, r, b] fractions (radial/rectangular/path: where the first stop sits),
-/// rotateWithShape?}`.
+/// scaled?: bool (linear), tile?: [l, t, r, b] fractions, rotateWithShape?}`.
 pub(crate) fn gradient_param(v: &Value) -> Option<Gradient> {
     let stops: Vec<GradientStop> = v
         .get("stops")?
@@ -96,6 +96,14 @@ pub(crate) fn gradient_param(v: &Value) -> Option<Gradient> {
             Some([f(0)?, f(1)?, f(2)?, f(3)?])
         })
         .unwrap_or([0.5, 0.5, 0.5, 0.5]);
+    let tile = v
+        .get("tile")
+        .and_then(Value::as_array)
+        .and_then(|a| {
+            let f = |i: usize| a.get(i).and_then(Value::as_f64).filter(|x| x.is_finite());
+            Some([f(0)?, f(1)?, f(2)?, f(3)?])
+        })
+        .unwrap_or([0.0; 4]);
     let mut stops = stops;
     stops.sort_by(|a, b| a.pos.total_cmp(&b.pos));
     let path = |p: &str| GradientShape::Path { path: p.into(), focus };
@@ -105,10 +113,10 @@ pub(crate) fn gradient_param(v: &Value) -> Option<Gradient> {
         Some("path" | "shape") => path("shape"),
         _ => GradientShape::Linear {
             angle: v.get("angle").and_then(Value::as_f64).filter(|a| a.is_finite()).unwrap_or(90.0).rem_euclid(360.0),
-            scaled: false,
+            scaled: v.get("scaled").and_then(Value::as_bool).unwrap_or(false),
         },
     };
-    Some(Gradient { tile: [0.0; 4], stops, shape, rotate_with_shape: v.get("rotateWithShape").and_then(Value::as_bool).unwrap_or(true) })
+    Some(Gradient { tile, stops, shape, rotate_with_shape: v.get("rotateWithShape").and_then(Value::as_bool).unwrap_or(true) })
 }
 
 /// Fill and outline apply to a group's visible members as well as its container. Other edits
@@ -134,11 +142,47 @@ pub(super) fn fill(s: &mut Session, p: &Value) -> Result<Value> {
     let transparency = f64_param(p, "transparency");
     let pic_props = p.get("pictureProps").filter(|v| v.is_object());
     if new_fill.is_none() && transparency.is_none() && pic_props.is_none() {
-        return Err(bad("shape.fill", "give `color`, `none`, `gradient`, `pattern`, `picture`, `pictureProps`, `transparency` or `reset`"));
+        return Err(bad(
+            "shape.fill",
+            "give `color`, `none`, `background`, `gradient`, `pattern`, `picture`, `pictureProps`, `transparency` or `reset`",
+        ));
     }
     // Transparency on an inherited (style) fill needs the effective colour.
     let inherited = inherited_fills(s, p)?;
-    edit_group_appearance(s, p, "shape.fill", |sh| apply_fill(sh, new_fill.as_ref(), pic_props, transparency, &inherited))
+    let background = matches!(new_fill, Some(Some(Fill::Background)));
+    if background {
+        let st = s.doc()?;
+        let mut any = false;
+        for id in targets(s, p)? {
+            if let Some(sh) = st.shape(id) {
+                deckcraft_model::walk(std::slice::from_ref(sh), &mut |sh, _| any |= matches!(sh.kind, deckcraft_model::ShapeKind::Shape));
+            }
+        }
+        if !any {
+            return Err(bad("shape.fill", "slide background fill applies to shapes and text boxes"));
+        }
+    }
+    edit_group_appearance(s, p, "shape.fill", |sh| {
+        if background && !matches!(sh.kind, deckcraft_model::ShapeKind::Shape) {
+            if matches!(sh.kind, deckcraft_model::ShapeKind::Group { .. }) && !group_fill_used(sh, 0) {
+                sh.fill = None;
+            }
+            return Ok(());
+        }
+        apply_fill(sh, new_fill.as_ref(), pic_props, transparency, &inherited)
+    })
+}
+
+/// Only a shape or text box (`p:sp`) saves a slide background fill (`useBgFill`). Pictures,
+/// connectors, tables and charts keep their fill, and a group's own fill is cleared unless one
+/// of them is filled with it (`grpFill`).
+fn group_fill_used(sh: &deckcraft_model::Shape, depth: usize) -> bool {
+    depth <= 64
+        && sh.children().iter().any(|c| match c.kind {
+            deckcraft_model::ShapeKind::Shape => false,
+            deckcraft_model::ShapeKind::Group { .. } => matches!(c.fill, None | Some(Fill::Group)) && group_fill_used(c, depth + 1),
+            _ => c.fill == Some(Fill::Group),
+        })
 }
 
 /// Applies Format Shape ▸ Picture or texture fill options to a picture fill.
@@ -400,6 +444,12 @@ pub(super) fn effects(s: &mut Session, p: &Value) -> Result<Value> {
             }
             if let Some(d) = num(v, "dir") {
                 x.dir = d.rem_euclid(360.0);
+            }
+            // PowerPoint's Size: 0–200%, both axes; a zero scale would collapse the shadow's matrix.
+            if let Some(z) = num(v, "size") {
+                let z = z.clamp(0.01, 2.0);
+                x.sx = z;
+                x.sy = z;
             }
             *slot = Some(x);
         }
