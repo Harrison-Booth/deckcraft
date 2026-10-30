@@ -8,9 +8,10 @@ New workspace crates must include `[lints] workspace = true` in `Cargo.toml` to 
 before modules or other crate items; crate-level `//!` documentation may precede them.
 
 ## Start every session
-1. Read `ROADMAP.md` and `docs/roadmap.md`.
-2. Read `../../craftrules/AGENTS.md` and the standards it lists for your task.
-3. Run `cargo xtask ci` before you change anything, so you know the tree is green.
+1. Read `plan/STATUS.md` when it exists.
+2. Read `ROADMAP.md` and `docs/roadmap.md`.
+3. Read `../../craftrules/AGENTS.md` and the standards it lists for your task.
+4. Run `cargo xtask ci` before you change anything, so you know the tree is green.
 
 ## Habits
 - Every user-visible action is a command with tests (`crates/engine/src/cmd/*`).
