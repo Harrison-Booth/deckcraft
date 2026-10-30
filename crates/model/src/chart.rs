@@ -324,6 +324,8 @@ pub struct Chart {
     pub legend: Option<String>,
     /// `c:legend/c:overlay`: the legend is drawn over the plot instead of shrinking it.
     pub legend_overlay: bool,
+    /// Explicit `c:plotArea/c:layout/c:manualLayout` position and size, as fractions of the chart.
+    pub manual_layout: Option<ManualLayout>,
     /// Text size in points of the axis labels and legend (from their `c:txPr`, else the chart's);
     /// `None`: the file gives none.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -398,6 +400,36 @@ pub struct Chart {
     pub kept: ChartKept,
 }
 
+/// The manually positioned plot-area rectangle from DrawingML.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualLayout {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// `inner` sizes the data plot; `outer` sizes the plot area including its axes.
+    pub target: ManualLayoutTarget,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ManualLayoutTarget {
+    #[default]
+    Outer,
+    Inner,
+}
+
+impl ManualLayout {
+    pub fn is_valid(self) -> bool {
+        [self.x, self.y, self.width, self.height].into_iter().all(|v| v.is_finite() && (0.0..=1.0).contains(&v))
+            && self.x + self.width <= 1.0
+            && self.y + self.height <= 1.0
+            && self.width > 0.0
+            && self.height > 0.0
+    }
+}
+
 /// One relationship of a chart part, with the target string as it was written.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -450,6 +482,7 @@ impl Default for Chart {
             series: vec![],
             legend: Some("b".into()),
             legend_overlay: false,
+            manual_layout: None,
             text_size: None,
             title_size: None,
             data_labels: false,
@@ -1270,7 +1303,14 @@ impl Chart {
         let mut bins: Vec<Bin> = (0..count).map(|i| Bin { lo: lo + width * i as f64, hi: lo + width * (i + 1) as f64, count: 0 }).collect();
         for x in v {
             // (lo, hi] bins, the first one also holding the minimum.
-            let i = (((x - lo) / width).ceil() as usize).saturating_sub(1).min(count - 1);
+            let mut i = (((x - lo) / width).ceil() as usize).saturating_sub(1).min(count - 1);
+            // The division can round across an edge: settle on the bin whose stored bounds hold x.
+            while i > 0 && x <= bins[i - 1].hi {
+                i -= 1;
+            }
+            while i + 1 < count && x > bins[i].hi {
+                i += 1;
+            }
             if let Some(b) = bins.get_mut(i) {
                 b.count += 1;
             }
@@ -1533,6 +1573,16 @@ mod chartex_tests {
         let mut c = obs(&[0.0, 1.0, 2.1]);
         c.bin_count = Some(7);
         assert_eq!(c.histogram_bins().len(), 7);
+    }
+
+    #[test]
+    fn histogram_value_on_a_bin_edge_counts_in_that_bin() {
+        let mut c = obs(&[0.0, 2.1, 3.0]);
+        c.bin_size = Some(0.3);
+        let bins = c.histogram_bins();
+        let own = bins.iter().find(|b| b.lo < 2.1 && 2.1 <= b.hi).expect("a bin holds 2.1");
+        assert_eq!(own.count, 1, "2.1 must be counted in ({}, {}]", own.lo, own.hi);
+        assert_eq!(bins.iter().map(|b| b.count).sum::<usize>(), 3);
     }
 
     #[test]

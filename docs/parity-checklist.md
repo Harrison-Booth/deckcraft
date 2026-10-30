@@ -1,6 +1,6 @@
 # PowerPoint feature checklist
 
-> **Generated:** 2026-10-14 (bullets/numbering remain D after empty-line marker review; summary by `cargo xtask parity`; rows re-scored by the 2026-10-14 community PR wave, duplicate Thesaurus, AutoCorrect, Artistic effects and Corrections rows folded; Preview in editor re-scored 2026-10-13; earlier rows re-scored 2026-10-10 against PowerPoint for Mac 16.113.4; video/animated GIF row re-scored 2026-10-11, #171) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
+> **Generated:** 2026-10-28 (chart elements stay P overall after manual plot-area support; bullets/numbering remain D after empty-line marker review; summary by `cargo xtask parity`; rows re-scored by the 2026-10-14 community PR wave, duplicate Thesaurus, AutoCorrect, Artistic effects and Corrections rows folded; Preview in editor re-scored 2026-10-13; earlier rows re-scored 2026-10-10 against PowerPoint for Mac 16.113.4; video/animated GIF row re-scored 2026-10-11, #171) · **Target:** Microsoft PowerPoint for Mac 16.113 (Microsoft 365)
 
 The summary between `<!-- SUMMARY -->
 **Weighted breadth parity: 84%** over 191 features.
@@ -36,7 +36,7 @@ The summary between `<!-- SUMMARY -->
 | Automation (✱) | 100% |
 | Platforms (✱) | 67% |
 
-Open P0 items: Contextual tabs (Shape Format, Picture Format, Table Design/Layout, Chart Design), Export to PDF (slides, notes pages, handouts; text layer, links, bookmarks; vector artwork pending), Format Shape pane, Font, size, bold, italic, underline, strikethrough (only Regular/Bold/Italic faces, #69), Edit chart data, Crop (and crop to shape, aspect ratio), Paste image from clipboard (fails on Windows and Linux, #53), Audio/video playback in the show (WMA/WMV not decodable yet), Animation pane (reorder, timing), Presenter view (notes, next slide, timer), macOS, Windows, Linux builds.
+Open P0 items: Contextual tabs (Shape Format, Picture Format, Table Design/Layout, Chart Design), Export to PDF (slides, notes pages, handouts; text layer, links, bookmarks; vector artwork pending), Format Shape pane, Font, size, bold, italic, underline, strikethrough (only Regular/Bold/Italic faces, #69), Edit chart data, Crop (and crop to shape, aspect ratio), Paste image from clipboard (fails on Windows, #1414; Linux not re-checked), Audio/video playback in the show (WMA/WMV not decodable yet), Animation pane (reorder, timing), Presenter view (notes, next slide, timer), macOS, Windows, Linux builds.
 
 ## Rows
 
@@ -174,7 +174,7 @@ Open P0 items: Contextual tabs (Shape Format, Picture Format, Table Design/Layou
 | Charts | Insert chart (column, bar, line, area, pie, doughnut, scatter) | P0 | D |
 | Charts | Other chart types (radar, stock, combo, waterfall, funnel, treemap, sunburst, histogram, box) | P2 | P |
 | Charts | Edit chart data | P0 | P |
-| Charts | Chart elements (title, legend, labels, axes, gridlines) | P1 | P |
+| Charts | Chart elements (title, legend, labels, axes, gridlines, manual plot area) | P1 | P |
 | Charts | Chart styles and colours | P2 | P |
 | SmartArt | Insert SmartArt (lists, processes, cycles, hierarchy) | P1 | P |
 | SmartArt | Text pane and layout switching | P2 | P |
@@ -187,7 +187,7 @@ Open P0 items: Contextual tabs (Shape Format, Picture Format, Table Design/Layou
 | Pictures | Picture styles and borders | P1 | D |
 | Pictures | Change / reset picture | P1 | D |
 | Pictures | Compress pictures | P2 | D |
-| Pictures | Paste image from clipboard (fails on Windows and Linux, #53) | P0 | P |
+| Pictures | Paste image from clipboard (fails on Windows, #1414; Linux not re-checked) | P0 | P |
 | Pictures | Insert screenshot | P2 | M |
 | Media | Insert audio (any common format) | P0 | D |
 | Media | Insert video | P1 | D |
