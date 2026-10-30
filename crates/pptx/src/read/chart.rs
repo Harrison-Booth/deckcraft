@@ -124,18 +124,29 @@ fn chart_within(root: &El, mut budget: usize) -> Option<Chart> {
     c.chart_fill = simple_fill(root.child("spPr"));
     c.plot_fill = simple_fill(pa.child("spPr"));
     c.manual_layout = pa.child("layout").and_then(|layout| layout.child("manualLayout")).and_then(|layout| {
+        let mode = |name, default| match layout.child_val(name).unwrap_or(default) {
+            "edge" => Some(true),
+            "factor" => Some(false),
+            _ => None,
+        };
         let target = match layout.child_val("layoutTarget").unwrap_or("outer") {
             "inner" => ManualLayoutTarget::Inner,
             "outer" => ManualLayoutTarget::Outer,
             _ => return None,
         };
-        let manual = ManualLayout {
-            x: layout.child("x")?.f64("val")?,
-            y: layout.child("y")?.f64("val")?,
-            width: layout.child("w")?.f64("val")?,
-            height: layout.child("h")?.f64("val")?,
-            target,
-        };
+        mode("xMode", "factor")?;
+        mode("yMode", "factor")?;
+        let w_edge = mode("wMode", "factor")?;
+        let h_edge = mode("hMode", "factor")?;
+        let x = layout.child("x")?.f64("val")?;
+        let y = layout.child("y")?.f64("val")?;
+        let w = layout.child("w")?.f64("val")?;
+        let h = layout.child("h")?.f64("val")?;
+        // In edge mode w/h name the far edge; the model stores dimensions. x/y
+        // are coordinates for edge mode and offsets for factor mode. The model
+        // uses normalized chart coordinates for both, so those offsets remain
+        // relative values while the dimensions are converted here.
+        let manual = ManualLayout { x, y, width: if w_edge { w - x } else { w }, height: if h_edge { h - y } else { h }, target };
         manual.is_valid().then_some(manual)
     });
 
@@ -375,7 +386,11 @@ fn read_axes<'a>(c: &mut Chart, pa: &'a El, primary_val: &Option<String>) -> (Op
         Some(n) if n.attr("sourceLinked") != Some("1") => n.attr("formatCode").map(str::to_string),
         n => source_format(a).or_else(|| n.and_then(|n| n.attr("formatCode")).map(str::to_string)),
     };
-    let deleted = |a: &El| a.child("delete").and_then(|d| d.bool("val")) == Some(true);
+    // `c:tickLblPos val="none"` hides the labels just as `c:delete` does.
+    let deleted = |a: &El| a.child("delete").and_then(|d| d.bool("val")) == Some(true) || a.child_val("tickLblPos") == Some("none");
+    // A gridline whose `c:spPr/a:ln` has `a:noFill` is not drawn, though the element is there.
+    let grid =
+        |a: &El, k: &str| a.child(k).is_some_and(|g| !g.child("spPr").and_then(|p| p.child("ln")).is_some_and(|l| l.child("noFill").is_some()));
     if c.kind == ChartType::Combo && c.series.iter().any(|s| s.secondary_axis) {
         let primary_id = val_ax.and_then(|a| a.child_val("axId"));
         // The other vertical value axis is the secondary one.
@@ -390,8 +405,8 @@ fn read_axes<'a>(c: &mut Chart, pa: &'a El, primary_val: &Option<String>) -> (Op
     }
     let cat_ax = pa.child("catAx").or_else(|| pa.child("dateAx")).or_else(|| pa.children_named("valAx").find(|a| !vertical(a)));
     if let Some(v) = val_ax {
-        c.gridlines = v.child("majorGridlines").is_some();
-        c.minor_gridlines = v.child("minorGridlines").is_some();
+        c.gridlines = grid(v, "majorGridlines");
+        c.minor_gridlines = grid(v, "minorGridlines");
         let sc = v.child("scaling");
         c.y_min = sc.and_then(|s| s.child_val("min")).and_then(|v| v.parse().ok()).filter(|v: &f64| v.is_finite());
         c.y_max = sc.and_then(|s| s.child_val("max")).and_then(|v| v.parse().ok()).filter(|v: &f64| v.is_finite());
@@ -785,6 +800,26 @@ mod tests {
     }
 
     #[test]
+    fn hidden_labels_and_unfilled_gridlines_are_read() {
+        let xml = |ax: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="{NS_C}" xmlns:a="{NS_A}"><c:chart><c:plotArea><c:barChart><c:barDir val="col"/><c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/></c:catAx><c:valAx><c:axId val="2"/>{ax}</c:valAx></c:plotArea></c:chart></c:chartSpace>"#
+            )
+        };
+        let no_fill = r#"<c:spPr><a:ln w="9525"><a:noFill/></a:ln></c:spPr>"#;
+        let c = read_chart_xml(xml(r#"<c:majorGridlines/><c:minorGridlines/><c:tickLblPos val="nextTo"/>"#).as_bytes()).unwrap();
+        assert!(c.gridlines && c.minor_gridlines && !c.y_hidden);
+        let c = read_chart_xml(
+            xml(&format!(
+                r#"<c:majorGridlines>{no_fill}</c:majorGridlines><c:minorGridlines>{no_fill}</c:minorGridlines><c:tickLblPos val="none"/>"#
+            ))
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(!c.gridlines && !c.minor_gridlines && c.y_hidden);
+    }
+
+    #[test]
     fn trendlines_are_read() {
         let xml = br#"<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:lineChart><c:grouping val="standard"/><c:ser><c:idx val="0"/><c:tx><c:v>Spend</c:v></c:tx>
 <c:trendline><c:name>Fit &amp; forecast</c:name><c:trendlineType val="linear"/><c:forward val="1"/><c:backward val="0.5"/><c:intercept val="0"/><c:dispRSqr val="1"/><c:dispEq val="1"/></c:trendline>
@@ -858,16 +893,22 @@ mod tests {
                 r#"<c:chartSpace xmlns:c="{NS_CHART}"><c:chart><c:plotArea><c:layout>{manual}</c:layout><c:barChart><c:barDir val="col"/></c:barChart></c:plotArea></c:chart></c:chartSpace>"#
             )
         };
-        let inner =
-            r#"<c:manualLayout><c:layoutTarget val="inner"/><c:x val="0.1"/><c:y val="0.2"/><c:w val="0.6"/><c:h val="0.7"/></c:manualLayout>"#;
+        let inner = r#"<c:manualLayout><c:layoutTarget val="inner"/><c:xMode val="edge"/><c:yMode val="edge"/><c:wMode val="edge"/><c:hMode val="edge"/><c:x val="0.1"/><c:y val="0.2"/><c:w val="0.7"/><c:h val="0.9"/></c:manualLayout>"#;
         assert_eq!(
             read_chart_xml(xml(inner).as_bytes()).unwrap().manual_layout,
             Some(ManualLayout { x: 0.1, y: 0.2, width: 0.6, height: 0.7, target: ManualLayoutTarget::Inner })
+        );
+        let factor = r#"<c:manualLayout><c:x val="0.1"/><c:y val="0.2"/><c:w val="0.6"/><c:h val="0.7"/></c:manualLayout>"#;
+        assert_eq!(
+            read_chart_xml(xml(factor).as_bytes()).unwrap().manual_layout,
+            Some(ManualLayout { x: 0.1, y: 0.2, width: 0.6, height: 0.7, target: ManualLayoutTarget::Outer })
         );
         for invalid in [
             r#"<c:manualLayout><c:x val="-0.1"/><c:y val="0"/><c:w val="0.5"/><c:h val="0.5"/></c:manualLayout>"#,
             r#"<c:manualLayout><c:x val="0.8"/><c:y val="0"/><c:w val="0.5"/><c:h val="0.5"/></c:manualLayout>"#,
             r#"<c:manualLayout><c:x val="NaN"/><c:y val="0"/><c:w val="0.5"/><c:h val="0.5"/></c:manualLayout>"#,
+            r#"<c:manualLayout><c:xMode val="unknown"/><c:x val="0"/><c:y val="0"/><c:w val="0.5"/><c:h val="0.5"/></c:manualLayout>"#,
+            r#"<c:manualLayout><c:x val="0.2"/><c:y val="0.1"/><c:wMode val="edge"/><c:hMode val="edge"/><c:w val="0.1"/><c:h val="0.05"/></c:manualLayout>"#,
         ] {
             assert_eq!(read_chart_xml(xml(invalid).as_bytes()).unwrap().manual_layout, None);
         }

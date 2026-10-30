@@ -1108,7 +1108,9 @@ mod tests {
         assert!(text.contains("<c:layoutTarget val=\"inner\"/>"));
         assert_eq!(crate::read::chart::read_chart_xml(&xml).unwrap().manual_layout, chart.manual_layout);
 
-        chart.manual_layout.as_mut().map(|layout| layout.width = f64::NAN);
+        if let Some(layout) = chart.manual_layout.as_mut() {
+            layout.width = f64::NAN;
+        }
         assert!(!String::from_utf8(super::chart_xml(&chart).0).unwrap().contains("manualLayout"));
     }
 
