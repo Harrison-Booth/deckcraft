@@ -557,11 +557,10 @@ pub fn ppr(w: &mut W, x: &mut Exp, o: &mut Out, tag: &str, level: Option<u8>, p:
         color(w, c);
         w.close("a:buClr");
     }
-    if let Some(s) = p.bullet_size {
+    if let Some(s) = p.bullet_size_points.filter(|s| s.is_finite() && (1.0..=4000.0).contains(s)) {
+        w.val("a:buSzPts", ((s * 100.0).round() as u32).to_string());
+    } else if let Some(s) = p.bullet_size {
         w.val("a:buSzPct", pct(s.clamp(0.25, 4.0)));
-    }
-    if let Some(s) = p.bullet_size_points {
-        w.val("a:buSzPts", ((s.clamp(0.01, 400.0) * 100.0).round() as u32).to_string());
     }
     if let Some(f) = &p.bullet_font {
         w.empty("a:buFont", A::new().a("typeface", f));

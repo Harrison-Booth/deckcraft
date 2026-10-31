@@ -432,10 +432,14 @@ pub fn ppr(imp: &mut Imp, part: &Part, p: &El) -> (Option<u8>, ParaProps, Option
             }
             "buFont" => pp.bullet_font = e.attr("typeface").map(String::from),
             "buClr" => pp.bullet_color = color(e),
-            "buSzPct" => pp.bullet_size = pct(e, "val").map(|v| v.clamp(0.25, 4.0)),
+            "buSzPct" => {
+                pp.bullet_size_points = None;
+                pp.bullet_size = pct(e, "val").map(|v| v.clamp(0.25, 4.0));
+            }
             "buSzPts" => {
+                pp.bullet_size = None;
                 pp.bullet_size_points =
-                    e.attr("val").and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite() && *v > 0.0 && *v <= 40_000.0).map(|v| v / 100.0);
+                    e.attr("val").and_then(|v| v.parse::<u32>().ok()).filter(|v| (100..=400_000).contains(v)).map(|v| v as f64 / 100.0);
             }
             "tabLst" => {
                 pp.tabs = Some(

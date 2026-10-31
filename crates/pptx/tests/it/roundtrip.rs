@@ -493,23 +493,26 @@ fn bullet_size_in_points_survives_two_pptx_round_trips() {
     let mut p = Presentation::default();
     let mut textbox = shape(&mut p, "Point-sized bullet", 20.0, 20.0, 400.0, 100.0);
     textbox.text = Some(TextBody {
-        paragraphs: vec![Paragraph {
-            props: deckcraft_model::text::ParaProps {
-                bullet: Some(Bullet::Char { char: "•".into() }),
-                bullet_size_points: Some(12.0),
+        paragraphs: [12.0, 500.0, 4000.0]
+            .into_iter()
+            .map(|size| Paragraph {
+                props: deckcraft_model::text::ParaProps {
+                    bullet: Some(Bullet::Char { char: "•".into() }),
+                    bullet_size_points: Some(size),
+                    ..Default::default()
+                },
+                runs: vec![Run::with("Bullet text", RunProps::default())],
                 ..Default::default()
-            },
-            runs: vec![Run::with("Bullet text", RunProps::default())],
-            ..Default::default()
-        }],
+            })
+            .collect(),
         ..Default::default()
     });
     Arc::make_mut(&mut p.slides[0]).shapes.push(textbox);
 
     let q = round(&round(&p));
-    let props = &by_name(&q.slides[0], "Point-sized bullet").text.as_ref().expect("text").paragraphs[0].props;
-    assert_eq!(props.bullet_size_points, Some(12.0));
-    assert_eq!(props.bullet_size, None);
+    let props = &by_name(&q.slides[0], "Point-sized bullet").text.as_ref().expect("text").paragraphs;
+    assert_eq!(props.iter().map(|p| p.props.bullet_size_points).collect::<Vec<_>>(), vec![Some(12.0), Some(500.0), Some(4000.0)]);
+    assert!(props.iter().all(|p| p.props.bullet_size.is_none()));
 }
 
 #[test]
