@@ -489,6 +489,30 @@ fn shapes_fills_lines_effects_round_trip() {
 }
 
 #[test]
+fn bullet_size_in_points_survives_two_pptx_round_trips() {
+    let mut p = Presentation::default();
+    let mut textbox = shape(&mut p, "Point-sized bullet", 20.0, 20.0, 400.0, 100.0);
+    textbox.text = Some(TextBody {
+        paragraphs: vec![Paragraph {
+            props: deckcraft_model::text::ParaProps {
+                bullet: Some(Bullet::Char { char: "•".into() }),
+                bullet_size_points: Some(12.0),
+                ..Default::default()
+            },
+            runs: vec![Run::with("Bullet text", RunProps::default())],
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    Arc::make_mut(&mut p.slides[0]).shapes.push(textbox);
+
+    let q = round(&round(&p));
+    let props = &by_name(&q.slides[0], "Point-sized bullet").text.as_ref().expect("text").paragraphs[0].props;
+    assert_eq!(props.bullet_size_points, Some(12.0));
+    assert_eq!(props.bullet_size, None);
+}
+
+#[test]
 fn pictures_media_and_ink_round_trip() {
     let p = rich_deck();
     let q = round(&p);

@@ -240,6 +240,8 @@ pub struct ParaProps {
     pub bullet_color: Option<ColorRef>,
     /// Bullet size as a fraction of the text size.
     pub bullet_size: Option<f64>,
+    /// Absolute bullet font size in points, independent of the paragraph's run size.
+    pub bullet_size_points: Option<f64>,
     pub tabs: Option<Vec<TabStop>>,
     pub default_tab: Option<f64>,
     pub rtl: Option<bool>,
@@ -270,6 +272,7 @@ impl ParaProps {
             self.bullet_color.clone_from(&p.bullet_color);
         }
         self.bullet_size = self.bullet_size.or(p.bullet_size);
+        self.bullet_size_points = self.bullet_size_points.or(p.bullet_size_points);
         if self.tabs.is_none() {
             self.tabs.clone_from(&p.tabs);
         }
