@@ -338,6 +338,8 @@ fn pic(imp: &mut Imp, part: &Part, ctx: &mut IdCtx, e: &El) -> Shape {
     if let Some(pr) = e.child("spPr") {
         sp_pr(imp, part, &mut s, pr);
     }
+    // A picture in a picture placeholder is cut into the layout's shape (a circle, say).
+    mark_inherited_geometry(&mut s, e.child("spPr"));
     s.style = e.child("style").map(style);
     let pf = e.child("blipFill").and_then(|b| dml::blip_fill(imp, part, b));
     let nvpr = e.path(&["nvPicPr", "nvPr"]);
@@ -803,6 +805,7 @@ fn cell(imp: &mut Imp, part: &Part, tc: &El) -> Cell {
             ]);
         }
         c.anchor = pr.attr("anchor").and_then(Anchor::from_xml);
+        c.horz_overflow = pr.attr("horzOverflow").and_then(deckcraft_model::text::TextOverflow::from_xml);
         c.vertical = pr.attr("vert").and_then(TextDir::from_xml);
         for (i, n) in ["lnL", "lnR", "lnT", "lnB"].iter().enumerate() {
             if let Some(ln) = pr.child(n)
