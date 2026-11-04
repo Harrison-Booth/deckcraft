@@ -7,7 +7,7 @@ use deckcraft_media::MediaInfo;
 use deckcraft_model::{MediaId, MediaItem, Presentation, Shape, ShapeKind, defaults};
 use serde_json::{Value, json};
 
-use super::{CommandSpec, always, bad, base64_decode, base64_encode, bool_or, cmd, f64_or, has_doc, ok, str_param, usize_param};
+use super::{CommandSpec, always, bad, base64_decode, base64_encode, bool_or, cmd, f64_or, has_doc, ok, opt_usize_param, str_param, usize_param};
 use crate::{DocState, EngineError, Result, Session};
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -150,10 +150,44 @@ impl Damage {
 /// [`open_presentation`], plus what the file had lost or damaged.
 pub fn open_checked(name: &str, bytes: &[u8]) -> Result<(Presentation, Damage)> {
     if deckcraft_format::sniff(bytes) {
-        let (p, media) = deckcraft_format::load_checked(bytes).map_err(|e| EngineError::Other(e.to_string()))?;
+        let (mut p, media) = deckcraft_format::load_checked(bytes).map_err(|e| EngineError::Other(e.to_string()))?;
+        restore_missing_chart_title_state(&mut p);
         return Ok((p, Damage { media, slides: vec![] }));
     }
     open_other(name, bytes).map(|(p, slides)| (p, Damage { media: vec![], slides }))
+}
+
+/// Older native files have no `autoTitle` field; recover it from their retained chart XML.
+fn restore_missing_chart_title_state(p: &mut Presentation) {
+    for slide in &mut p.slides {
+        restore_chart_title_state_in_shapes(&mut Arc::make_mut(slide).shapes, 0);
+    }
+    for master in &mut p.masters {
+        let master = Arc::make_mut(master);
+        restore_chart_title_state_in_shapes(&mut master.shapes, 0);
+        for layout in &mut master.layouts {
+            restore_chart_title_state_in_shapes(&mut layout.shapes, 0);
+        }
+    }
+    for master in [&mut p.notes_master, &mut p.handout_master].into_iter().flatten() {
+        restore_chart_title_state_in_shapes(&mut Arc::make_mut(master).shapes, 0);
+    }
+}
+
+fn restore_chart_title_state_in_shapes(shapes: &mut [Shape], depth: usize) {
+    if depth > 64 {
+        return;
+    }
+    for shape in shapes {
+        if let ShapeKind::Chart(chart) = &mut shape.kind
+            && chart.auto_title.is_none()
+        {
+            chart.auto_title = Some(chart.raw.as_deref().and_then(deckcraft_pptx::chart_auto_title_state).unwrap_or(false));
+        }
+        if let Some(children) = shape.children_mut() {
+            restore_chart_title_state_in_shapes(children, depth + 1);
+        }
+    }
 }
 
 fn open_other(name: &str, bytes: &[u8]) -> Result<(Presentation, Vec<String>)> {
@@ -345,6 +379,7 @@ pub fn save_bytes(doc: &Presentation, format: &str) -> Result<Vec<u8>> {
         "rtf" => Ok(deckcraft_format::rtf::slides_to_rtf(doc).into_bytes()),
         "pdf" => deckcraft_pdf::export(doc, &Default::default()).map_err(|e| EngineError::Other(e.to_string())),
         "gif" => gif_bytes(doc, &Value::Null),
+        "png" | "jpeg" | "jpg" => Err(EngineError::Other("saving a presentation as a single image isn't supported; use file.export".into())),
         _ => deckcraft_format::save(doc).map_err(|e| EngineError::Other(e.to_string())),
     }
 }
@@ -359,7 +394,13 @@ pub fn pdf_options(p: &Value, count: usize) -> Result<deckcraft_pdf::PdfOptions>
     let mut o = deckcraft_pdf::PdfOptions { layout: deckcraft_pdf::PageLayout::Slides, ..Default::default() };
     o.layout = match str_param(p, "layout").unwrap_or("slides") {
         "notes" => deckcraft_pdf::PageLayout::Notes,
-        "handouts" => deckcraft_pdf::PageLayout::Handouts { per_page: usize_param(p, "perPage").unwrap_or(6).clamp(1, 9) as u8 },
+        "handouts" => {
+            let per_page = opt_usize_param(p, "perPage", "file.export")?.unwrap_or(6);
+            if ![1, 2, 3, 4, 6, 9].contains(&per_page) {
+                return Err(bad("file.export", format!("perPage {per_page} isn't one of 1, 2, 3, 4, 6, 9")));
+            }
+            deckcraft_pdf::PageLayout::Handouts { per_page: per_page as u8 }
+        }
         _ => deckcraft_pdf::PageLayout::Slides,
     };
     o.dpi = f64_or(p, "dpi", o.dpi).clamp(36.0, 600.0);
@@ -390,18 +431,23 @@ pub fn pdf_options(p: &Value, count: usize) -> Result<deckcraft_pdf::PdfOptions>
 pub fn parse_slide_range(text: &str, count: usize) -> Result<Vec<usize>> {
     let invalid = || bad("file.export", format!("“{text}” isn't a valid slide range: use numbers and ranges such as 1-3, 5"));
     let mut out: Vec<usize> = vec![];
+    let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for part in text.split([',', ';']).map(str::trim).filter(|p| !p.is_empty()) {
         let (a, b) = match part.split_once('-') {
             Some((a, b)) => (a.trim(), b.trim()),
             None => (part, part),
         };
+        let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
+        if !digits(a) || !digits(b) {
+            return Err(invalid());
+        }
         let (a, b) = (a.parse::<usize>().map_err(|_| invalid())?, b.parse::<usize>().map_err(|_| invalid())?);
         let (lo, hi) = (a.min(b), a.max(b));
         if lo == 0 || hi > count {
             return Err(bad("file.export", format!("the presentation has {count} slides; “{part}” is outside them")));
         }
         for i in lo - 1..hi {
-            if !out.contains(&i) {
+            if seen.insert(i) {
                 out.push(i);
             }
         }
@@ -536,7 +582,7 @@ fn picture_bytes(img: &deckcraft_render::Image, format: &str, scale: f64) -> Vec
 
 fn render(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.doc()?;
-    let i = usize_param(p, "slide").unwrap_or(st.selection.slide);
+    let i = opt_usize_param(p, "slide", "file.render")?.unwrap_or(st.selection.slide);
     if i >= st.doc.slides.len() {
         return Err(bad("file.render", format!("no slide {i}")));
     }
@@ -547,7 +593,7 @@ fn render(s: &mut Session, p: &Value) -> Result<Value> {
 /// The colour the slide is drawn with at one point: what the Eyedropper takes.
 fn color_at(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.doc()?;
-    let i = usize_param(p, "slide").unwrap_or(st.selection.slide);
+    let i = opt_usize_param(p, "slide", "slide.colorAt")?.unwrap_or(st.selection.slide);
     if i >= st.doc.slides.len() {
         return Err(bad("slide.colorAt", format!("no slide {i}")));
     }
@@ -578,7 +624,7 @@ fn export(s: &mut Session, p: &Value) -> Result<Value> {
     }
     match format.as_str() {
         "png" | "jpeg" | "jpg" => {
-            let slides: Vec<usize> = match usize_param(p, "slide") {
+            let slides: Vec<usize> = match opt_usize_param(p, "slide", "file.export")? {
                 Some(i) => vec![i],
                 None if bool_or(p, "all", false) => (0..st.doc.slides.len()).collect(),
                 None => vec![st.selection.slide],
@@ -763,7 +809,26 @@ mod color_at_tests;
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use super::write_file;
+    use super::{parse_slide_range, restore_chart_title_state_in_shapes, restore_missing_chart_title_state, write_file};
+    use deckcraft_model::chart::{Chart, ChartType, Series};
+    use deckcraft_model::{Shape, ShapeKind};
+
+    #[test]
+    fn broad_and_repeated_slide_ranges_expand_once() {
+        // 200 copies of a 100,000-slide range: each index once, in order, without a scan per index.
+        let text = vec!["1-100000"; 200].join(",");
+        let v = parse_slide_range(&text, 100_000).unwrap();
+        assert_eq!(v.len(), 100_000);
+        assert!(v.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(parse_slide_range("3, 1-3, 2", 3).unwrap(), vec![2, 0, 1]);
+    }
+
+    #[test]
+    fn slide_range_rejects_plus_sign() {
+        assert!(parse_slide_range("+2", 3).is_err());
+        assert!(parse_slide_range("+1-+3", 3).is_err());
+        assert_eq!(parse_slide_range("1-3", 3).unwrap(), vec![0, 1, 2]);
+    }
 
     fn scratch(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("deckcraft-write-file-{}-{name}", std::process::id()));
@@ -796,5 +861,79 @@ mod tests {
         assert!(dest.is_dir());
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_native_auto_title_state_is_recovered_from_chart_xml() {
+        let raw = r#"<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:autoTitleDeleted val="0"/><c:plotArea><c:barChart><c:ser><c:tx><c:v>Old</c:v></c:tx></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"#;
+        let chart = Chart {
+            kind: ChartType::Column,
+            title: Some("Old".into()),
+            raw: Some(raw.into()),
+            series: vec![Series { name: "Old".into(), ..Default::default() }],
+            ..Default::default()
+        };
+        let mut value = serde_json::to_value(chart).expect("serialize chart");
+        value.as_object_mut().expect("chart object").remove("autoTitle");
+        let chart: Chart = serde_json::from_value(value).expect("load older chart");
+        assert_eq!(chart.auto_title, None);
+        let mut shapes = vec![Shape { kind: ShapeKind::Chart(Box::new(chart)), ..Default::default() }];
+        restore_chart_title_state_in_shapes(&mut shapes, 0);
+        let ShapeKind::Chart(chart) = &shapes[0].kind else { panic!("chart") };
+        assert_eq!(chart.auto_title, Some(true));
+        assert_eq!(chart.title.as_deref(), Some("Old"));
+    }
+
+    #[test]
+    fn missing_native_auto_title_state_is_recovered_for_every_chart_owner() {
+        use deckcraft_model::{Layout, Master, Presentation, Slide};
+        use std::sync::Arc;
+
+        fn shape(auto: bool, title: &str) -> Shape {
+            let raw = format!(
+                r#"<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:autoTitleDeleted val="{}"/><c:plotArea><c:barChart><c:ser><c:tx><c:v>Series</c:v></c:tx></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"#,
+                if auto { 0 } else { 1 }
+            );
+            let chart = Chart {
+                kind: ChartType::Column,
+                title: Some(title.into()),
+                raw: Some(raw),
+                series: vec![Series { name: "Series".into(), ..Default::default() }],
+                ..Default::default()
+            };
+            let mut value = serde_json::to_value(chart).unwrap();
+            value.as_object_mut().unwrap().remove("autoTitle");
+            Shape { kind: ShapeKind::Chart(Box::new(serde_json::from_value(value).unwrap())), ..Default::default() }
+        }
+
+        fn recovered(shapes: &[Shape]) -> &Chart {
+            let ShapeKind::Chart(chart) = &shapes[0].kind else { panic!("chart") };
+            chart
+        }
+
+        let mut p = Presentation {
+            slides: vec![Arc::new(Slide { shapes: vec![shape(true, "Series"), shape(false, "User title")], ..Default::default() })],
+            masters: vec![Arc::new(Master {
+                shapes: vec![shape(true, "Series")],
+                layouts: vec![Layout { shapes: vec![shape(true, "Series")], ..Default::default() }],
+                ..Default::default()
+            })],
+            notes_master: Some(Arc::new(Master { shapes: vec![shape(true, "Series")], ..Default::default() })),
+            handout_master: Some(Arc::new(Master { shapes: vec![shape(true, "Series")], ..Default::default() })),
+            ..Default::default()
+        };
+
+        restore_missing_chart_title_state(&mut p);
+        restore_missing_chart_title_state(&mut p);
+
+        assert_eq!(recovered(&p.slides[0].shapes).auto_title, Some(true));
+        let master = &p.masters[0];
+        assert_eq!(recovered(&master.shapes).auto_title, Some(true));
+        assert_eq!(recovered(&master.layouts[0].shapes).auto_title, Some(true));
+        assert_eq!(recovered(&p.notes_master.as_ref().unwrap().shapes).auto_title, Some(true));
+        assert_eq!(recovered(&p.handout_master.as_ref().unwrap().shapes).auto_title, Some(true));
+        let explicit = recovered(&p.slides[0].shapes[1..]);
+        assert_eq!(explicit.auto_title, Some(false));
+        assert_eq!(explicit.title.as_deref(), Some("User title"));
     }
 }

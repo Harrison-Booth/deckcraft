@@ -115,9 +115,11 @@ fn chart_within(root: &El, mut budget: usize) -> Option<Chart> {
     c.style = root.child_val("style").and_then(|v| v.parse().ok()).unwrap_or(2);
     if let Some(t) = ch.child("title") {
         c.title = Some(rich_text(t).unwrap_or_else(|| "Chart Title".into()));
+        c.auto_title = Some(false);
     }
     if ch.child("autoTitleDeleted").and_then(|a| a.bool("val")) == Some(true) {
         c.title = None;
+        c.auto_title = Some(false);
     }
     c.legend = ch.child("legend").map(|l| l.child_val("legendPos").unwrap_or("r").to_string());
     c.legend_overlay = ch.child("legend").and_then(|l| l.child("overlay")).and_then(|o| o.bool("val")).unwrap_or(false);
@@ -149,8 +151,11 @@ fn chart_within(root: &El, mut budget: usize) -> Option<Chart> {
         }
     }
     // `autoTitleDeleted val="0"` without `c:title`: PowerPoint and LibreOffice draw the series name as the title of a single-series chart.
-    if ch.child("title").is_none() && ch.child("autoTitleDeleted").and_then(|a| a.bool("val")) == Some(false) && c.series.len() == 1 {
-        c.title = c.series.first().map(|s| s.name.clone()).filter(|n| !n.is_empty());
+    if ch.child("title").is_none() && ch.child("autoTitleDeleted").and_then(|a| a.bool("val")) == Some(false) {
+        c.auto_title = Some(true);
+        if c.series.len() == 1 {
+            c.title = c.series.first().map(|s| s.name.clone()).filter(|n| !n.is_empty());
+        }
     }
     let first = *kinds.first()?;
     c.kind = if kinds.iter().any(|k| *k != first) { ChartType::Combo } else { first };
@@ -360,7 +365,11 @@ fn read_axes<'a>(c: &mut Chart, pa: &'a El, primary_val: &Option<String>) -> (Op
         Some(n) if n.attr("sourceLinked") != Some("1") => n.attr("formatCode").map(str::to_string),
         n => source_format(a).or_else(|| n.and_then(|n| n.attr("formatCode")).map(str::to_string)),
     };
-    let deleted = |a: &El| a.child("delete").and_then(|d| d.bool("val")) == Some(true);
+    // `c:tickLblPos val="none"` hides the labels just as `c:delete` does.
+    let deleted = |a: &El| a.child("delete").and_then(|d| d.bool("val")) == Some(true) || a.child_val("tickLblPos") == Some("none");
+    // A gridline whose `c:spPr/a:ln` has `a:noFill` is not drawn, though the element is there.
+    let grid =
+        |a: &El, k: &str| a.child(k).is_some_and(|g| !g.child("spPr").and_then(|p| p.child("ln")).is_some_and(|l| l.child("noFill").is_some()));
     if c.kind == ChartType::Combo && c.series.iter().any(|s| s.secondary_axis) {
         let primary_id = val_ax.and_then(|a| a.child_val("axId"));
         // The other vertical value axis is the secondary one.
@@ -375,8 +384,8 @@ fn read_axes<'a>(c: &mut Chart, pa: &'a El, primary_val: &Option<String>) -> (Op
     }
     let cat_ax = pa.child("catAx").or_else(|| pa.child("dateAx")).or_else(|| pa.children_named("valAx").find(|a| !vertical(a)));
     if let Some(v) = val_ax {
-        c.gridlines = v.child("majorGridlines").is_some();
-        c.minor_gridlines = v.child("minorGridlines").is_some();
+        c.gridlines = grid(v, "majorGridlines");
+        c.minor_gridlines = grid(v, "minorGridlines");
         let sc = v.child("scaling");
         c.y_min = sc.and_then(|s| s.child_val("min")).and_then(|v| v.parse().ok()).filter(|v: &f64| v.is_finite());
         c.y_max = sc.and_then(|s| s.child_val("max")).and_then(|v| v.parse().ok()).filter(|v: &f64| v.is_finite());
@@ -770,6 +779,26 @@ mod tests {
     }
 
     #[test]
+    fn hidden_labels_and_unfilled_gridlines_are_read() {
+        let xml = |ax: &str| {
+            format!(
+                r#"<c:chartSpace xmlns:c="{NS_C}" xmlns:a="{NS_A}"><c:chart><c:plotArea><c:barChart><c:barDir val="col"/><c:axId val="1"/><c:axId val="2"/></c:barChart><c:catAx><c:axId val="1"/></c:catAx><c:valAx><c:axId val="2"/>{ax}</c:valAx></c:plotArea></c:chart></c:chartSpace>"#
+            )
+        };
+        let no_fill = r#"<c:spPr><a:ln w="9525"><a:noFill/></a:ln></c:spPr>"#;
+        let c = read_chart_xml(xml(r#"<c:majorGridlines/><c:minorGridlines/><c:tickLblPos val="nextTo"/>"#).as_bytes()).unwrap();
+        assert!(c.gridlines && c.minor_gridlines && !c.y_hidden);
+        let c = read_chart_xml(
+            xml(&format!(
+                r#"<c:majorGridlines>{no_fill}</c:majorGridlines><c:minorGridlines>{no_fill}</c:minorGridlines><c:tickLblPos val="none"/>"#
+            ))
+            .as_bytes(),
+        )
+        .unwrap();
+        assert!(!c.gridlines && !c.minor_gridlines && c.y_hidden);
+    }
+
+    #[test]
     fn trendlines_are_read() {
         let xml = br#"<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart><c:plotArea><c:lineChart><c:grouping val="standard"/><c:ser><c:idx val="0"/><c:tx><c:v>Spend</c:v></c:tx>
 <c:trendline><c:name>Fit &amp; forecast</c:name><c:trendlineType val="linear"/><c:forward val="1"/><c:backward val="0.5"/><c:intercept val="0"/><c:dispRSqr val="1"/><c:dispEq val="1"/></c:trendline>
@@ -801,20 +830,28 @@ mod tests {
 
     #[test]
     fn single_series_gets_automatic_title() {
-        assert_eq!(chart(r#"<c:autoTitleDeleted val="0"/>"#, "", 1).title.as_deref(), Some("S0"));
+        let c = chart(r#"<c:autoTitleDeleted val="0"/>"#, "", 1);
+        assert_eq!(c.title.as_deref(), Some("S0"));
+        assert_eq!(c.auto_title, Some(true));
     }
 
     #[test]
     fn no_automatic_title_when_deleted_or_multi_series() {
-        assert_eq!(chart(r#"<c:autoTitleDeleted val="1"/>"#, "", 1).title, None);
+        let deleted = chart(r#"<c:autoTitleDeleted val="1"/>"#, "", 1);
+        assert_eq!(deleted.title, None);
+        assert_eq!(deleted.auto_title, Some(false));
         assert_eq!(chart("", "", 1).title, None);
-        assert_eq!(chart(r#"<c:autoTitleDeleted val="0"/>"#, "", 2).title, None);
+        let multiple = chart(r#"<c:autoTitleDeleted val="0"/>"#, "", 2);
+        assert_eq!(multiple.title, None);
+        assert_eq!(multiple.auto_title, Some(true));
     }
 
     #[test]
     fn explicit_title_wins() {
         let t = "<c:title><c:tx><c:rich><a:p><a:r><a:t>Mine</a:t></a:r></a:p></c:rich></c:tx></c:title>";
-        assert_eq!(chart(r#"<c:autoTitleDeleted val="0"/>"#, t, 1).title.as_deref(), Some("Mine"));
+        let c = chart(r#"<c:autoTitleDeleted val="0"/>"#, t, 1);
+        assert_eq!(c.title.as_deref(), Some("Mine"));
+        assert_eq!(c.auto_title, Some(false));
     }
 
     const NS_CHART: &str = "http://schemas.openxmlformats.org/drawingml/2006/chart";
