@@ -1,5 +1,7 @@
 //! Charts: title, plot area with axes and gridlines, series marks, legend.
 
+use std::collections::HashMap;
+
 use deckcraft_color::{ColorTransform, Rgba, SchemeSlot};
 use deckcraft_model::Shape;
 use deckcraft_model::chart::{Chart, ChartType, TrendlineType, axis_scale};
@@ -85,9 +87,9 @@ fn bar_outline(ctx: &Ctx, s: &deckcraft_model::chart::Series) -> Option<(Rgba, f
 /// Paint of one bar: a `<c:dPt>` fill wins, and a single-series chart that varies colours by point uses one accent per point
 /// (not waterfalls, which are never read from a `<c:barChart>`). Pattern fills draw as patterns and
 /// `a:noFill` leaves the bar empty, as in PowerPoint.
-fn bar_paint(ctx: &Ctx, c: &Chart, si: usize, pi: usize, s: &deckcraft_model::chart::Series) -> Paint {
-    if let Some((_, f)) = s.point_fills.iter().find(|(k, _)| *k == pi) {
-        return paint_of(ctx, Some(f), series_fill(ctx, c, si, Some(s)));
+fn bar_paint(ctx: &Ctx, c: &Chart, si: usize, pi: usize, s: &deckcraft_model::chart::Series, fills: Option<&HashMap<usize, &Fill>>) -> Paint {
+    if let Some(f) = fills.and_then(|m| m.get(&pi)) {
+        return paint_of(ctx, Some(*f), series_fill(ctx, c, si, Some(s)));
     }
     if c.vary_colors && c.series.len() == 1 && s.fill.is_none() && c.kind != ChartType::Waterfall {
         return Paint::Color(series_color(ctx, c, pi));
@@ -319,6 +321,8 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     // Each legend entry: its name, its key's paint and the key's outline.
     let legend_items = build_legend_items(rctx, c, pie, waterfall);
     area = draw_legend(ctx, &LegendDraw { rctx, chart: c, transform: m, items: &legend_items, base, text_color: text_col, width: w }, area);
+    let (manual_area, manual_plot) = apply_manual_layout(c, area, w, h, pie);
+    area = manual_area;
     if pie {
         draw_pie(ctx, rctx, c, m, area, base, text_col);
         return;
@@ -335,9 +339,14 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     // Bars are drawn first and lines over them; a combo chart has both.
     let bar_kind = c.series.iter().map(|s| c.series_kind(s)).find(|k| k.is_bar_like());
     let horiz = if combo { bar_kind.is_some_and(ChartType::horizontal) } else { c.kind.horizontal() };
-    area = draw_axis_titles(ctx, rctx, &AxisTitleDrawing { chart: c, transform: m, base, text_color: text_col, horiz }, area);
+    let titles = AxisTitleDrawing { chart: c, transform: m, base, text_color: text_col, horiz };
+    if let Some(plot) = manual_plot {
+        draw_axis_titles(ctx, rctx, &titles, manual_axis_title_area(plot, base));
+    } else {
+        area = draw_axis_titles(ctx, rctx, &titles, area);
+    }
     // As many major units as the value axis has room for labels (PowerPoint's automatic unit).
-    let axis_len = if horiz { area.width() - base * 4.5 } else { area.height() - base * 1.8 };
+    let axis_len = manual_plot.map_or_else(|| auto_axis_len(area, horiz, base), |plot| if horiz { plot.width() } else { plot.height() });
     let max_intervals = (axis_len / if horiz { base * 6.0 } else { base * 1.9 }).floor().clamp(2.0, 12.0) as usize;
     // A logarithmic axis is scaled in exponents of its base.
     let log = c.log_axis_scale(max_intervals).map(|sc| (c.y_log_base.unwrap_or(10.0), sc));
@@ -366,11 +375,7 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
         clamp_soft(label_w(false, (min, max, step)), base * 1.5, area.width() * 0.3)
     };
     let gutter_r = second.filter(|_| !c.y2_hidden).map(|sc| clamp_soft(label_w(true, sc), base * 1.5, area.width() * 0.3)).unwrap_or(0.0);
-    let plot = if horiz {
-        Rect::new(area.x0 + gutter, area.y0, area.x1, area.y1 - base * 1.6)
-    } else {
-        Rect::new(area.x0 + gutter, area.y0, area.x1 - gutter_r, area.y1 - base * 1.8)
-    };
+    let plot = manual_plot.unwrap_or_else(|| auto_plot_rect(area, horiz, gutter, gutter_r, base));
     if let Some(f) = &c.plot_fill {
         crate::paint::fill_path(ctx, rctx, f, None, &plot.to_path(0.1), plot, m, deckcraft_geom::preset::FillMode::Norm, 1.0, rctx.pres);
     }
@@ -513,6 +518,41 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     ctx.set_paint(color(Rgba::rgb(0xBF, 0xBF, 0xBF), 1.0));
     ctx.set_stroke(kurbo::Stroke::new(0.75));
     ctx.stroke_path(&ax);
+}
+
+fn manual_layout_rect(layout: deckcraft_model::chart::ManualLayout, width: f64, height: f64) -> Rect {
+    Rect::new(layout.x * width, layout.y * height, (layout.x + layout.width) * width, (layout.y + layout.height) * height)
+}
+
+fn manual_axis_title_area(plot: Rect, base: f64) -> Rect {
+    let pad = base * 1.9;
+    Rect::new(plot.x0 - pad, plot.y0 - pad, plot.x1, plot.y1 + pad)
+}
+
+fn apply_manual_layout(c: &Chart, mut area: Rect, width: f64, height: f64, pie: bool) -> (Rect, Option<Rect>) {
+    let Some(layout) = c.manual_layout.filter(|layout| layout.is_valid()) else { return (area, None) };
+    let rect = manual_layout_rect(layout, width, height);
+    let axisless = pie
+        || matches!(
+            c.kind,
+            ChartType::Funnel | ChartType::Treemap | ChartType::Sunburst | ChartType::RegionMap | ChartType::Radar | ChartType::FilledRadar
+        );
+    if layout.target == deckcraft_model::chart::ManualLayoutTarget::Outer || axisless {
+        area = rect;
+    }
+    (area, (layout.target == deckcraft_model::chart::ManualLayoutTarget::Inner && !axisless).then_some(rect))
+}
+
+fn auto_axis_len(area: Rect, horiz: bool, base: f64) -> f64 {
+    if horiz { area.width() - base * 4.5 } else { area.height() - base * 1.8 }
+}
+
+fn auto_plot_rect(area: Rect, horiz: bool, gutter: f64, gutter_r: f64, base: f64) -> Rect {
+    if horiz {
+        Rect::new(area.x0 + gutter, area.y0, area.x1, area.y1 - base * 1.6)
+    } else {
+        Rect::new(area.x0 + gutter, area.y0, area.x1 - gutter_r, area.y1 - base * 1.8)
+    }
 }
 
 struct LegendDraw<'a, 'ctx> {
@@ -883,6 +923,8 @@ fn draw_lines(ctx: &mut RenderContext, draw: &mut LineDrawing<'_, '_>) {
         let col = if area_kind { series_fill(rctx, c, si, Some(s)) } else { series_line(rctx, c, si, s) };
         let series_stats = s.error_bars.as_ref().map(|_| deckcraft_model::chart::SeriesStats::of(&s.values));
         let mut pts = vec![];
+        // Whether the series has any x value, found once rather than per point.
+        let any_x = s.x_values.iter().flatten().next().is_some();
         for i in 0..ncat {
             let Some(v) = s.values.get(i).copied().flatten() else { continue };
             let v = if stacked {
@@ -896,11 +938,11 @@ fn draw_lines(ctx: &mut RenderContext, draw: &mut LineDrawing<'_, '_>) {
             };
             let x = match kind {
                 ChartType::Scatter | ChartType::Bubble => {
-                    match (s.x_values.get(i).copied().flatten().and_then(to_x), s.x_values.iter().flatten().next()) {
+                    match (s.x_values.get(i).copied().flatten().and_then(to_x), any_x) {
                         (Some(x), _) => x,
                         // No x values at all: the points are numbered 1, 2, 3...
-                        (None, None) => to_x(i as f64 + 1.0).unwrap_or(plot.x0 + band * (slot(i) + 0.5)),
-                        (None, Some(_)) => continue,
+                        (None, false) => to_x(i as f64 + 1.0).unwrap_or(plot.x0 + band * (slot(i) + 0.5)),
+                        (None, true) => continue,
                     }
                 }
                 _ => plot.x0 + band * (slot(i) + 0.5),
@@ -970,6 +1012,19 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
         let group = bar + step * (n - 1.0);
         // Error bars need each series' mean and spread: worked out once, not per point.
         let stats: Vec<deckcraft_model::chart::SeriesStats> = bars.iter().map(|(_, s)| deckcraft_model::chart::SeriesStats::of(&s.values)).collect();
+        // Each series' per-point fills by point (the first for a point wins), not searched per bar.
+        let point_fills: Vec<HashMap<usize, &Fill>> = bars
+            .iter()
+            .map(|(_, s)| {
+                let mut m = HashMap::new();
+                for (k, f) in &s.point_fills {
+                    m.entry(*k).or_insert(f);
+                }
+                m
+            })
+            .collect();
+        // A waterfall's running bars, worked out once for all its categories.
+        let waterfall_bars = if waterfall { c.waterfall_bars() } else { Vec::new() };
         for i in 0..ncat {
             let mut pos_acc = 0.0;
             let mut neg_acc = 0.0;
@@ -983,7 +1038,7 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
                 let v = s.values.get(i).copied().flatten().unwrap_or(0.0) / total;
                 let start = band * slot(i) + (band - group) / 2.0 + if stacked { 0.0 } else { step * bi as f64 };
                 let (a, b) = if waterfall {
-                    c.waterfall_bars().get(i).copied().unwrap_or_default()
+                    waterfall_bars.get(i).copied().unwrap_or_default()
                 } else if stacked {
                     if v >= 0.0 {
                         let r = (pos_acc, pos_acc + v);
@@ -1015,7 +1070,7 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
                     };
                     Paint::Color(series_color(rctx, c, slot))
                 } else {
-                    bar_paint(rctx, c, *si, i, s)
+                    bar_paint(rctx, c, *si, i, s, point_fills.get(bi))
                 };
                 fill_with(ctx, &paint, r.abs(), m);
                 if !waterfall && let Some((oc, ow)) = bar_outline(rctx, s).filter(|o| o.1 > 0.0) {
@@ -1040,8 +1095,7 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
                         err_marks.push((mid, p0, p1, bar.min(base * 0.8) * 0.5, e.end_cap));
                     }
                 }
-                if c.series_data_labels(s) {
-                    let t = c.data_label(s, s.values.get(i).copied().flatten().unwrap_or(0.0));
+                if let Some(t) = bar_data_label(c, s, i) {
                     let lr = if horiz {
                         Rect::new(r.x1 + 2.0, r.y0, r.x1 + 40.0, r.y1)
                     } else {
@@ -1066,6 +1120,31 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
         }
     }
     err_marks
+}
+
+fn bar_data_label(c: &Chart, s: &deckcraft_model::chart::Series, i: usize) -> Option<String> {
+    if !c.series_data_labels(s) {
+        return None;
+    }
+    s.values.get(i).copied().flatten().map(|value| c.data_label(s, value))
+}
+
+#[cfg(test)]
+mod bar_label_tests {
+    use super::bar_data_label;
+    use deckcraft_model::chart::{Chart, Series};
+
+    #[test]
+    fn missing_bar_values_have_no_label_but_explicit_zero_does() {
+        let chart = Chart { data_labels: true, ..Default::default() };
+        let series = Series { values: [Some(1.0), None, Some(3.0)].into(), ..Default::default() };
+
+        let labels: Vec<_> = (0..series.values.len()).filter_map(|i| bar_data_label(&chart, &series, i)).collect();
+
+        assert_eq!(labels, ["1", "3"]);
+        let zero = Series { values: [Some(0.0)].into(), ..Default::default() };
+        assert_eq!(bar_data_label(&chart, &zero, 0).as_deref(), Some("0"));
+    }
 }
 
 fn draw_pie(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, m: Affine, area: Rect, base: f64, text_col: Rgba) {
@@ -1383,6 +1462,31 @@ mod tests {
     use super::*;
 
     const AREA: Rect = Rect::new(0.0, 0.0, 400.0, 300.0);
+
+    #[test]
+    fn manual_plot_rectangle_uses_chart_fraction_and_keeps_target_independent() {
+        let layout = deckcraft_model::chart::ManualLayout {
+            x: 0.2,
+            y: 0.1,
+            width: 0.6,
+            height: 0.7,
+            target: deckcraft_model::chart::ManualLayoutTarget::Inner,
+        };
+        let rect = manual_layout_rect(layout, 400.0, 300.0);
+        assert!((rect.x0 - 80.0).abs() < 1e-9);
+        assert!((rect.y0 - 30.0).abs() < 1e-9);
+        assert!((rect.x1 - 320.0).abs() < 1e-9);
+        assert!((rect.y1 - 240.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn manual_plot_axis_title_area_tracks_the_plot_edges() {
+        let plot = Rect::new(80.0, 30.0, 320.0, 240.0);
+        let area = manual_axis_title_area(plot, 10.0);
+        assert_eq!((area.x0, area.y0, area.x1, area.y1), (61.0, 11.0, 320.0, 259.0));
+        assert_eq!((area.y0 + area.y1) / 2.0, (plot.y0 + plot.y1) / 2.0);
+        assert!(area.y1 - 10.0 * 1.6 >= plot.y1);
+    }
 
     #[test]
     fn tiny_data_gets_several_ticks() {
