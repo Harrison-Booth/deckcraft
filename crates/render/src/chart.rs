@@ -1,5 +1,7 @@
 //! Charts: title, plot area with axes and gridlines, series marks, legend.
 
+use std::collections::HashMap;
+
 use deckcraft_color::{ColorTransform, Rgba, SchemeSlot};
 use deckcraft_model::Shape;
 use deckcraft_model::chart::{Chart, ChartType, TrendlineType, axis_scale};
@@ -13,6 +15,30 @@ use crate::color;
 
 const SLOTS: [SchemeSlot; 6] =
     [SchemeSlot::Accent1, SchemeSlot::Accent2, SchemeSlot::Accent3, SchemeSlot::Accent4, SchemeSlot::Accent5, SchemeSlot::Accent6];
+
+fn title_layout(rctx: &Ctx, title: &str, size: f64, col: Rgba, rect: Rect) -> deckcraft_text::TextLayout {
+    let mut body = TextBody::from_text(title);
+    body.body.inset_l = Some(0.0);
+    body.body.inset_r = Some(0.0);
+    body.body.inset_t = Some(0.0);
+    body.body.inset_b = Some(0.0);
+    body.body.anchor = Some(Anchor::Top);
+    body.body.wrap = Some(true);
+    for p in &mut body.paragraphs {
+        p.props.align = Some(Align::Center);
+        p.props.bullet = Some(Bullet::None);
+        p.props.margin_left = Some(0.0);
+        p.props.indent = Some(0.0);
+        for run in &mut p.runs {
+            run.props.size.get_or_insert(size);
+            run.props.bold.get_or_insert(false);
+            run.props.fill = Some(Fill::solid(ColorRef::rgb(col)));
+        }
+    }
+    let shape = Shape { text: Some(body.clone()), ..Default::default() };
+    let opts = deckcraft_text::Opts { rect, fields: &deckcraft_text::NoFields, prompt_color: None, no_shrink: true };
+    deckcraft_text::layout(rctx, &shape, &body, &opts)
+}
 
 /// Colour of series/point `i`: accents, then darker and lighter rounds.
 pub fn series_color(ctx: &Ctx, c: &Chart, i: usize) -> Rgba {
@@ -85,9 +111,9 @@ fn bar_outline(ctx: &Ctx, s: &deckcraft_model::chart::Series) -> Option<(Rgba, f
 /// Paint of one bar: a `<c:dPt>` fill wins, and a single-series chart that varies colours by point uses one accent per point
 /// (not waterfalls, which are never read from a `<c:barChart>`). Pattern fills draw as patterns and
 /// `a:noFill` leaves the bar empty, as in PowerPoint.
-fn bar_paint(ctx: &Ctx, c: &Chart, si: usize, pi: usize, s: &deckcraft_model::chart::Series) -> Paint {
-    if let Some((_, f)) = s.point_fills.iter().find(|(k, _)| *k == pi) {
-        return paint_of(ctx, Some(f), series_fill(ctx, c, si, Some(s)));
+fn bar_paint(ctx: &Ctx, c: &Chart, si: usize, pi: usize, s: &deckcraft_model::chart::Series, fills: Option<&HashMap<usize, &Fill>>) -> Paint {
+    if let Some(f) = fills.and_then(|m| m.get(&pi)) {
+        return paint_of(ctx, Some(*f), series_fill(ctx, c, si, Some(s)));
     }
     if c.vary_colors && c.series.len() == 1 && s.fill.is_none() && c.kind != ChartType::Waterfall {
         return Paint::Color(series_color(ctx, c, pi));
@@ -303,15 +329,15 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     let title_size = c.title_size.unwrap_or(base * 1.4);
     let mut area = Rect::new(w * 0.04, h * 0.04, w * 0.96, h * 0.96);
     if let Some(t) = &c.title {
-        label(
-            ctx,
-            rctx,
-            m,
-            t,
-            Rect::new(0.0, area.y0, w, area.y0 + title_size * 1.3),
-            LabelStyle { size: title_size, align: Align::Center, anchor: Anchor::Top, col: text_col, bold: false },
-        );
-        area.y0 += title_size * 1.7;
+        let title_rect = Rect::new(0.0, area.y0, w, h);
+        let layout = title_layout(rctx, t, title_size, text_col, title_rect);
+        let advance = title_advance(area, layout.content_height, title_size, base);
+        let title_clip = Rect::new(0.0, area.y0, w, area.y0 + advance);
+        ctx.set_transform(m);
+        ctx.push_clip_layer(&title_clip.to_path(0.1));
+        crate::draw_layout(ctx, &layout, title_rect, m);
+        ctx.pop_layer();
+        area.y0 += advance;
     }
     let pie = matches!(c.kind, ChartType::Pie | ChartType::Doughnut);
     // Legend placed by `c:legendPos`.
@@ -367,9 +393,9 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     };
     let gutter_r = second.filter(|_| !c.y2_hidden).map(|sc| clamp_soft(label_w(true, sc), base * 1.5, area.width() * 0.3)).unwrap_or(0.0);
     let plot = if horiz {
-        Rect::new(area.x0 + gutter, area.y0, area.x1, area.y1 - base * 1.6)
+        Rect::new(area.x0 + gutter, area.y0, area.x1, auto_plot_bottom(area, base, 1.6))
     } else {
-        Rect::new(area.x0 + gutter, area.y0, area.x1 - gutter_r, area.y1 - base * 1.8)
+        Rect::new(area.x0 + gutter, area.y0, area.x1 - gutter_r, auto_plot_bottom(area, base, 1.8))
     };
     if let Some(f) = &c.plot_fill {
         crate::paint::fill_path(ctx, rctx, f, None, &plot.to_path(0.1), plot, m, deckcraft_geom::preset::FillMode::Norm, 1.0, rctx.pres);
@@ -513,6 +539,15 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, frame: ChartFrame<
     ctx.set_paint(color(Rgba::rgb(0xBF, 0xBF, 0xBF), 1.0));
     ctx.set_stroke(kurbo::Stroke::new(0.75));
     ctx.stroke_path(&ax);
+}
+
+fn auto_plot_bottom(area: Rect, base: f64, inset: f64) -> f64 {
+    (area.y1 - base * inset).max(area.y0 + 1.0)
+}
+
+fn title_advance(area: Rect, content_height: f64, size: f64, base: f64) -> f64 {
+    // Reserve the axis-title band and plot inset too, not just one point below the chart title.
+    (content_height + size * 0.4).min((area.height() - base * 3.7 - 1.0).max(0.0))
 }
 
 struct LegendDraw<'a, 'ctx> {
@@ -883,6 +918,8 @@ fn draw_lines(ctx: &mut RenderContext, draw: &mut LineDrawing<'_, '_>) {
         let col = if area_kind { series_fill(rctx, c, si, Some(s)) } else { series_line(rctx, c, si, s) };
         let series_stats = s.error_bars.as_ref().map(|_| deckcraft_model::chart::SeriesStats::of(&s.values));
         let mut pts = vec![];
+        // Whether the series has any x value, found once rather than per point.
+        let any_x = s.x_values.iter().flatten().next().is_some();
         for i in 0..ncat {
             let Some(v) = s.values.get(i).copied().flatten() else { continue };
             let v = if stacked {
@@ -896,11 +933,11 @@ fn draw_lines(ctx: &mut RenderContext, draw: &mut LineDrawing<'_, '_>) {
             };
             let x = match kind {
                 ChartType::Scatter | ChartType::Bubble => {
-                    match (s.x_values.get(i).copied().flatten().and_then(to_x), s.x_values.iter().flatten().next()) {
+                    match (s.x_values.get(i).copied().flatten().and_then(to_x), any_x) {
                         (Some(x), _) => x,
                         // No x values at all: the points are numbered 1, 2, 3...
-                        (None, None) => to_x(i as f64 + 1.0).unwrap_or(plot.x0 + band * (slot(i) + 0.5)),
-                        (None, Some(_)) => continue,
+                        (None, false) => to_x(i as f64 + 1.0).unwrap_or(plot.x0 + band * (slot(i) + 0.5)),
+                        (None, true) => continue,
                     }
                 }
                 _ => plot.x0 + band * (slot(i) + 0.5),
@@ -970,6 +1007,19 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
         let group = bar + step * (n - 1.0);
         // Error bars need each series' mean and spread: worked out once, not per point.
         let stats: Vec<deckcraft_model::chart::SeriesStats> = bars.iter().map(|(_, s)| deckcraft_model::chart::SeriesStats::of(&s.values)).collect();
+        // Each series' per-point fills by point (the first for a point wins), not searched per bar.
+        let point_fills: Vec<HashMap<usize, &Fill>> = bars
+            .iter()
+            .map(|(_, s)| {
+                let mut m = HashMap::new();
+                for (k, f) in &s.point_fills {
+                    m.entry(*k).or_insert(f);
+                }
+                m
+            })
+            .collect();
+        // A waterfall's running bars, worked out once for all its categories.
+        let waterfall_bars = if waterfall { c.waterfall_bars() } else { Vec::new() };
         for i in 0..ncat {
             let mut pos_acc = 0.0;
             let mut neg_acc = 0.0;
@@ -983,7 +1033,7 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
                 let v = s.values.get(i).copied().flatten().unwrap_or(0.0) / total;
                 let start = band * slot(i) + (band - group) / 2.0 + if stacked { 0.0 } else { step * bi as f64 };
                 let (a, b) = if waterfall {
-                    c.waterfall_bars().get(i).copied().unwrap_or_default()
+                    waterfall_bars.get(i).copied().unwrap_or_default()
                 } else if stacked {
                     if v >= 0.0 {
                         let r = (pos_acc, pos_acc + v);
@@ -1015,7 +1065,7 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
                     };
                     Paint::Color(series_color(rctx, c, slot))
                 } else {
-                    bar_paint(rctx, c, *si, i, s)
+                    bar_paint(rctx, c, *si, i, s, point_fills.get(bi))
                 };
                 fill_with(ctx, &paint, r.abs(), m);
                 if !waterfall && let Some((oc, ow)) = bar_outline(rctx, s).filter(|o| o.1 > 0.0) {
@@ -1040,8 +1090,7 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
                         err_marks.push((mid, p0, p1, bar.min(base * 0.8) * 0.5, e.end_cap));
                     }
                 }
-                if c.series_data_labels(s) {
-                    let t = c.data_label(s, s.values.get(i).copied().flatten().unwrap_or(0.0));
+                if let Some(t) = bar_data_label(c, s, i) {
                     let lr = if horiz {
                         Rect::new(r.x1 + 2.0, r.y0, r.x1 + 40.0, r.y1)
                     } else {
@@ -1066,6 +1115,31 @@ fn draw_bars(ctx: &mut RenderContext, draw: &BarDrawing<'_, '_>) -> Vec<(f64, f6
         }
     }
     err_marks
+}
+
+fn bar_data_label(c: &Chart, s: &deckcraft_model::chart::Series, i: usize) -> Option<String> {
+    if !c.series_data_labels(s) {
+        return None;
+    }
+    s.values.get(i).copied().flatten().map(|value| c.data_label(s, value))
+}
+
+#[cfg(test)]
+mod bar_label_tests {
+    use super::bar_data_label;
+    use deckcraft_model::chart::{Chart, Series};
+
+    #[test]
+    fn missing_bar_values_have_no_label_but_explicit_zero_does() {
+        let chart = Chart { data_labels: true, ..Default::default() };
+        let series = Series { values: [Some(1.0), None, Some(3.0)].into(), ..Default::default() };
+
+        let labels: Vec<_> = (0..series.values.len()).filter_map(|i| bar_data_label(&chart, &series, i)).collect();
+
+        assert_eq!(labels, ["1", "3"]);
+        let zero = Series { values: [Some(0.0)].into(), ..Default::default() };
+        assert_eq!(bar_data_label(&chart, &zero, 0).as_deref(), Some("0"));
+    }
 }
 
 fn draw_pie(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, m: Affine, area: Rect, base: f64, text_col: Rgba) {
@@ -1388,6 +1462,50 @@ mod tests {
     fn tiny_data_gets_several_ticks() {
         let sc = deckcraft_model::chart::axis_scale(1e-13, 5e-13, None, None, None, 8, true);
         assert!(axis_ticks(sc).count() >= 3, "{sc:?}");
+    }
+
+    #[test]
+    fn chart_titles_wrap_and_report_their_actual_height() {
+        let p = deckcraft_model::Presentation::default();
+        let rctx = Ctx::for_slide(&p, &p.slides[0]).expect("slide context");
+        let two = title_layout(&rctx, "A chart title wrapping onto two lines", 18.0, Rgba::BLACK, Rect::new(0.0, 0.0, 260.0, 280.0));
+        let three = title_layout(
+            &rctx,
+            "A much longer chart title that should wrap into three lines at this width",
+            18.0,
+            Rgba::BLACK,
+            Rect::new(0.0, 0.0, 260.0, 280.0),
+        );
+        assert!(two.lines.len() >= 2);
+        assert!(three.lines.len() >= two.lines.len());
+        assert!(three.content_height > two.content_height);
+    }
+
+    #[test]
+    fn long_chart_title_keeps_a_positive_plot_height() {
+        let p = deckcraft_model::Presentation::default();
+        let rctx = Ctx::for_slide(&p, &p.slides[0]).expect("slide context");
+        let area = Rect::new(0.0, 10.0, 200.0, 90.0);
+        let title = title_layout(
+            &rctx,
+            "A very long chart title that needs more height than the tiny chart provides",
+            18.0,
+            Rgba::BLACK,
+            Rect::new(0.0, area.y0, area.x1, 100.0),
+        );
+        let base = 13.0;
+        let advance = title_advance(area, title.content_height, 18.0, base);
+        let after_title = Rect::new(area.x0, area.y0 + advance, area.x1, area.y1);
+        let axis_area = Rect::new(after_title.x0, after_title.y0, after_title.x1, after_title.y1 - base * 1.9);
+        let plot_bottom = auto_plot_bottom(axis_area, base, 1.8);
+        assert!(plot_bottom - (area.y0 + advance) >= 1.0);
+    }
+
+    #[test]
+    fn tiny_auto_plot_keeps_a_positive_height() {
+        let area = Rect::new(0.0, 0.0, 20.0, 4.0);
+        assert!(auto_plot_bottom(area, 18.0, 1.6) - area.y0 >= 1.0);
+        assert!(auto_plot_bottom(area, 18.0, 1.8) - area.y0 >= 1.0);
     }
 
     #[test]
