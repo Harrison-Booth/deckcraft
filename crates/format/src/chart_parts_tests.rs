@@ -53,7 +53,7 @@ fn rewrite_manifest(bytes: &[u8], edit: impl FnOnce(&mut Value)) -> Vec<u8> {
     let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for i in 0..z.len() {
         let f = z.by_index(i).unwrap();
-        if f.name() == "presentation.json" {
+        if f.name().unwrap() == "presentation.json" {
             out.start_file("presentation.json", zip::write::SimpleFileOptions::default()).unwrap();
             out.write_all(&serde_json::to_vec(&json).unwrap()).unwrap();
         } else {
@@ -85,14 +85,14 @@ fn chart_parts_share_media_byte_and_item_budgets() {
     let mut p = fixture(vec![7; 600]);
     p.add_media("a.bin", "application/octet-stream", vec![8; 600]).unwrap();
     let bytes = save(&p).unwrap();
-    assert!(load_within(&bytes, Budget { total: 1200, items: 2 }).is_ok());
-    assert!(load_within(&bytes, Budget { total: 1199, items: 2 }).is_err(), "chart payloads share the cumulative media budget");
-    assert!(load_within(&bytes, Budget { total: 1200, items: 1 }).is_err(), "chart parts share the media item budget");
+    assert!(load_within(&bytes, Budget::media(1200, 2)).is_ok());
+    assert!(load_within(&bytes, Budget::media(1199, 2)).is_err(), "chart payloads share the cumulative media budget");
+    assert!(load_within(&bytes, Budget::media(1200, 1)).is_err(), "chart parts share the media item budget");
     let duplicated = rewrite_manifest(&bytes, |manifest| {
         let media = manifest["presentation"]["media"].as_array_mut().unwrap();
         media.push(media[0].clone());
     });
-    assert!(load_within(&duplicated, Budget { total: 1200, items: 2 }).is_err(), "duplicate media IDs still count as listed items");
+    assert!(load_within(&duplicated, Budget::media(1200, 2)).is_err(), "duplicate media IDs still count as listed items");
 }
 
 #[test]
@@ -104,9 +104,9 @@ fn legacy_inline_chart_bytes_are_budgeted_and_preserved() {
         part.remove("nativeEntry");
         part.insert("bytes".into(), json!(vec![9_u8; 600]));
     });
-    assert_eq!(load_within(&legacy, Budget { total: 1200, items: 2 }).unwrap().0, p);
-    assert!(load_within(&legacy, Budget { total: 1199, items: 2 }).is_err());
-    assert!(load_within(&legacy, Budget { total: 1200, items: 1 }).is_err());
+    assert_eq!(load_within(&legacy, Budget::media(1200, 2)).unwrap().0, p);
+    assert!(load_within(&legacy, Budget::media(1199, 2)).is_err());
+    assert!(load_within(&legacy, Budget::media(1200, 1)).is_err());
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn chart_payloads_in_every_shape_owner_get_distinct_entries() {
     p.handout_master = Some(Arc::new(Master { shapes, ..Default::default() }));
     let bytes = save(&p).unwrap();
     let z = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
-    assert_eq!(z.file_names().filter(|name| name.starts_with("chart-parts/")).count(), 5);
+    assert_eq!(z.file_names().filter(|name| name.as_ref().is_ok_and(|name| name.starts_with("chart-parts/"))).count(), 5);
     assert_eq!(load(&bytes).unwrap(), p);
 }
 
@@ -131,11 +131,11 @@ fn missing_or_corrupt_chart_payload_is_reported() {
     let mut z = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
     let mut json: Value = serde_json::from_slice(&read_entry(&mut z, "presentation.json").unwrap()).unwrap();
     let name = part_json(&mut json).unwrap()["nativeEntry"].as_str().unwrap().to_owned();
-    let start = z.by_name(&name).unwrap().data_start() as usize;
+    let start = z.by_name(&name).unwrap().data_start().unwrap() as usize;
     let mut out = zip::ZipWriter::new(Cursor::new(Vec::new()));
     for i in 0..z.len() {
         let f = z.by_index(i).unwrap();
-        if f.name() != name {
+        if f.name().unwrap() != name {
             out.raw_copy_file(f).unwrap();
         }
     }
@@ -200,14 +200,14 @@ fn corrupt_chart_members_stop_before_reusing_the_inflation_budget() {
     let mut bytes = save(&with_two_parts()).unwrap();
     let offsets: Vec<_> = {
         let mut z = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
-        (0..2).map(|i| z.by_name(&format!("chart-parts/{i}")).unwrap().data_start() as usize).collect()
+        (0..2).map(|i| z.by_name(&format!("chart-parts/{i}")).unwrap().data_start().unwrap() as usize).collect()
     };
     for offset in offsets {
         bytes[offset] ^= 0xff;
     }
     // A failed CRC may already have inflated bytes. Continuing with the same remaining
     // budget would let each corrupt member consume that work budget again.
-    let result = load_within(&bytes, Budget { total: 10, items: 2 });
+    let result = load_within(&bytes, Budget::media(10, 2));
     assert!(result.is_err(), "two corrupt 10-byte members must not reuse a 10-byte budget");
     assert!(result.unwrap_err().to_string().contains("chart-parts/0"));
 }
@@ -227,8 +227,8 @@ fn duplicate_physical_zip_names_are_indexed_and_inflated_once() {
     }
     assert_eq!(replaced, 2);
     let z = zip::ZipArchive::new(Cursor::new(bytes.as_slice())).unwrap();
-    assert_eq!(z.file_names().filter(|n| n.starts_with("chart-parts/")).count(), 1);
-    let (q, damaged) = load_within(&bytes, Budget { total: 10, items: 2 }).unwrap();
+    assert_eq!(z.file_names().filter(|n| n.as_ref().is_ok_and(|n| n.starts_with("chart-parts/"))).count(), 1);
+    let (q, damaged) = load_within(&bytes, Budget::media(10, 2)).unwrap();
     assert_eq!(damaged.len(), 1, "the second reference is missing, not inflated again");
     let ShapeKind::Group { children, .. } = &q.slides[0].shapes[0].kind else { panic!("group") };
     let ShapeKind::Chart(chart) = &children[0].kind else { panic!("chart") };
