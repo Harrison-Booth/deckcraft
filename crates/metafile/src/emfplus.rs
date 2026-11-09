@@ -3,7 +3,8 @@
 //! Most EMF+ files are *dual*: the same picture is also drawn with plain EMF records as a
 //! fallback for GDI. PowerPoint draws metafiles with GDI+, which plays the EMF+ records and skips
 //! the plain ones (except after EmfPlusGetDC), and a fallback can be incomplete (a nested
-//! metafile it lacks), so this reader does the same. It plays the records:
+//! metafile it lacks), so this reader does the same in both EMF+ Only and Dual mode. A GetDC window
+//! ends at the next EMF+ record, including ignored records and EndOfFile. It plays the records:
 //! - brushes (solid, hatch, texture, linear and path gradients), pens, paths, images, fonts,
 //!   string formats and regions, including objects split across several records;
 //! - rectangles, polygons, lines, ellipses, paths and Béziers;
@@ -217,9 +218,9 @@ struct Saved {
 }
 
 pub(crate) struct Plus {
-    /// An EMF+ header said the file is dual: its plain EMF records are only a GDI fallback.
-    dual: bool,
-    /// An EmfPlusGetDC record opened a window of plain EMF records, until the next EMF+ comment.
+    /// An EMF+ header selected EMF+ playback, in either Only or Dual mode.
+    active: bool,
+    /// An EmfPlusGetDC record opened a window of plain EMF records, until the next EMF+ record.
     gdi: bool,
     dpi: f64,
     world: Xform,
@@ -237,7 +238,7 @@ pub(crate) struct Plus {
 impl Plus {
     pub fn new() -> Self {
         Plus {
-            dual: false,
+            active: false,
             gdi: false,
             dpi: 96.0,
             world: IDENTITY,
@@ -251,10 +252,9 @@ impl Plus {
         }
     }
 
-    /// Whether the plain EMF record that follows is drawn: always, except in a dual file outside
-    /// an EmfPlusGetDC window.
+    /// Plain EMF plays before an EMF+ header, or inside an EmfPlusGetDC window afterward.
     pub fn plays_gdi(&self) -> bool {
-        !self.dual || self.gdi
+        !self.active || self.gdi
     }
 
     /// Plays the EMF+ records of one EMR_COMMENT payload (after the identifier).
@@ -291,7 +291,7 @@ impl Plus {
 
     fn record(&mut self, cv: &mut Canvas, typ: u16, flags: u16, r: Bytes) -> Option<()> {
         if typ == 0x4001 {
-            self.dual = flags & 1 != 0;
+            self.active = true;
             if let Some(d) = r.u32(8).map(f64::from).filter(|d| *d > 0.0 && *d < 100_000.0) {
                 self.dpi = d;
             }

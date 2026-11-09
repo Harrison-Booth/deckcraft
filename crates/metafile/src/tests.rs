@@ -1656,20 +1656,28 @@ fn emfplus_only_fill_rects_with_argb_colour() {
 }
 
 #[test]
-fn emfplus_dual_files_draw_the_emfplus_records_like_gdiplus() {
-    let fill = prec(0x400A, 0x8000, &cat(vec![h32(0xFFFF_0000), h32(1), f32s(&[0.0, 0.0, 5.0, 5.0])]));
-    let gdi = erec(43, &cat(vec![e32(0), e32(0), e32(9), e32(9)]));
-    let p = parse(&emf(&[plus_comment(&[plus_header(true), fill]), gdi], [0; 4], [0; 4])).unwrap();
-    assert_eq!(p.items.len(), 1);
-    assert_eq!(path_segs(&p.items[0]).1, Some([255, 0, 0, 255]));
+fn emfplus_playback_skips_gdi_fallbacks_in_both_modes() {
+    for dual in [false, true] {
+        let fill = prec(0x400A, 0x8000, &cat(vec![h32(0xFFFF_0000), h32(1), f32s(&[0.0, 0.0, 5.0, 5.0])]));
+        let gdi = erec(43, &cat(vec![e32(0), e32(0), e32(9), e32(9)]));
+        let p = parse(&emf(&[plus_comment(&[plus_header(dual), fill]), gdi], [0; 4], [0; 4])).unwrap();
+        assert_eq!(p.items.len(), 1, "dual={dual}");
+        assert_eq!(path_segs(&p.items[0]).1, Some([255, 0, 0, 255]));
+    }
 }
 
 #[test]
-fn emfplus_dual_files_play_plain_records_after_get_dc() {
-    let gdi = erec(43, &cat(vec![e32(0), e32(0), e32(9), e32(9)]));
-    let get_dc = prec(0x4004, 0, &[]);
-    let p = parse(&emf(&[plus_comment(&[plus_header(true)]), plus_comment(&[get_dc]), gdi], [0; 4], [0; 4])).unwrap();
-    assert_eq!(p.items.len(), 1);
+fn emfplus_getdc_plays_gdi_until_the_next_emfplus_record() {
+    for dual in [false, true] {
+        let header = plus_comment(&[plus_header(dual)]);
+        let getdc = plus_comment(&[prec(0x4004, 0, &[])]);
+        let fill = plus_comment(&[prec(0x400A, 0x8000, &cat(vec![h32(0xFFFF_0000), h32(1), f32s(&[0.0, 0.0, 5.0, 5.0])]))]);
+        let gdi = erec(43, &cat(vec![e32(0), e32(0), e32(9), e32(9)]));
+        let p = parse(&emf(&[header, gdi.clone(), getdc, gdi.clone(), fill, gdi], [0; 4], [0; 4])).unwrap();
+        assert_eq!(p.items.len(), 2, "dual={dual}");
+        assert_eq!(path_segs(&p.items[0]).1, Some([255, 255, 255, 255]));
+        assert_eq!(path_segs(&p.items[1]).1, Some([255, 0, 0, 255]));
+    }
 }
 
 #[test]
@@ -1680,6 +1688,21 @@ fn emfplus_record_after_get_dc_in_one_comment_closes_the_plain_window() {
     let p = parse(&emf(&[plus_comment(&[plus_header(true), get_dc, fill]), gdi], [0; 4], [0; 4])).unwrap();
     assert_eq!(p.items.len(), 1);
     assert_eq!(path_segs(&p.items[0]).1, Some([255, 0, 0, 255]));
+}
+
+#[test]
+fn emfplus_nondrawing_records_close_getdc_even_in_the_same_comment() {
+    for dual in [false, true] {
+        // A transform, an ignored rendering hint, and EndOfFile all close the window.
+        for typ in [0x402B, 0x401E, 0x4002] {
+            let fill = prec(0x400A, 0x8000, &cat(vec![h32(0xFFFF_0000), h32(1), f32s(&[0.0, 0.0, 5.0, 5.0])]));
+            let comment = plus_comment(&[plus_header(dual), fill, prec(0x4004, 0, &[]), prec(typ, 0, &[])]);
+            let gdi = erec(43, &cat(vec![e32(0), e32(0), e32(9), e32(9)]));
+            let p = parse(&emf(&[comment, gdi], [0; 4], [0; 4])).unwrap();
+            assert_eq!(p.items.len(), 1, "dual={dual}, closing record={typ:#x}");
+            assert_eq!(path_segs(&p.items[0]).1, Some([255, 0, 0, 255]));
+        }
+    }
 }
 
 #[test]
@@ -1759,6 +1782,20 @@ fn emfplus_draw_image_places_the_bitmap() {
         }
         other => panic!("expected a bitmap: {other:?}"),
     }
+}
+
+#[test]
+fn emfplus_dual_without_emf_fallback_draws_images_across_comments() {
+    let header = plus_comment(&[plus_header(true)]);
+    // Image objects may arrive in a later comment, separated by ordinary EMF state records.
+    let map_mode = erec(17, &h32(1));
+    let image = plus_comment(&[prec(0x4008, 0x0500 | 4, &bitmap_2x2()), draw_image(4, [10.0, 20.0, 30.0, 40.0])]);
+    let p = parse(&emf(&[header, map_mode, image], [0; 4], [0; 4])).unwrap();
+    assert_eq!(p.items.len(), 1);
+    let Item::Bitmap { rect, width, height, rgba, .. } = &p.items[0] else { panic!("expected the EMF+ bitmap") };
+    assert_eq!((*width, *height), (2, 2));
+    assert_eq!(rect, &[0.0, 0.0, 30.0, 40.0]);
+    assert_eq!(rgba.as_slice(), [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255]);
 }
 
 #[test]
